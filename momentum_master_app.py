@@ -1757,11 +1757,10 @@ def render_momentum_master():
                     if news_ticker not in st.session_state['news_summaries']:
                         st.session_state['news_summaries'][news_ticker] = {}
                     
+                    # WORKAROUND: Dummy element to absorb Streamlit Cloud orphan widget bug
+                    st.markdown("<div style='display:none;'></div>", unsafe_allow_html=True)
+                    
                     for idx, item in enumerate(news_items):
-                        # Skip index 0 - sacrificial item for Streamlit Cloud bug workaround
-                        if idx == 0:
-                            continue
-                        
                         pub_str = f" ({item['publisher']})" if item['publisher'] != 'Unknown' else ""
                         with st.expander(f"📰 {item['title']}{pub_str}", expanded=True):
                             st.write(f"**Published**: {item['time']}")
@@ -1775,9 +1774,8 @@ def render_momentum_master():
                                 st.success("✅ Deep Summary Generated")
                                 st.info(stored_summary)
                             else:
-                                # Using checkbox instead of button to avoid Streamlit Cloud bug
-                                chk_key = f"chk_{news_ticker}_{idx}"
-                                if st.checkbox("✨ AI詳細要約を表示", key=chk_key, value=False):
+                                btn_key = f"btn_{news_ticker}_{idx}"
+                                if st.button("✨ AI詳細要約 (Read Article)", key=btn_key):
                                     with st.spinner("記事を解析中... (これには数秒かかります)"):
                                         deep_val = get_article_summary(item['link'])
                                         st.session_state['news_summaries'][news_ticker][summary_key] = deep_val
