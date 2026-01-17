@@ -414,24 +414,11 @@ def get_ticker_news(ticker, company_name=None):
             })
 
         # --- SORTING & SELECTION ---
-        # Sort by Score (Desc) first to get top 4 candidates
-        scored_candidates.sort(key=lambda x: x['score'], reverse=True)
+        # Sort by: Score (Desc) -> Time (Desc, newest first)
+        scored_candidates.sort(key=lambda x: (x['score'], x['raw_time']), reverse=True)
         
-        # Take Top 4 candidates by score
-        top_4_by_score = scored_candidates[:4]
-        
-        # Now reorder: oldest first (sacrificial at index 0), then newest-first for display
-        # Sort by time ascending (oldest first)
-        top_4_by_score.sort(key=lambda x: x['raw_time'])
-        
-        # Pop the oldest (index 0) to keep as sacrificial, then reverse the rest for newest-first
-        if len(top_4_by_score) >= 1:
-            sacrificial = [top_4_by_score[0]]  # Oldest at index 0
-            remaining = top_4_by_score[1:]
-            remaining.reverse()  # Newest first
-            top_results = sacrificial + remaining
-        else:
-            top_results = top_4_by_score
+        # Take Top 3
+        top_results = scored_candidates[:3]
         
         results = []
         for res in top_results:
