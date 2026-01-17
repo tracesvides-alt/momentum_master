@@ -1712,6 +1712,18 @@ def render_momentum_master():
     
     if top_tickers:
         news_ticker = st.selectbox("Select Ticker to View News:", top_tickers, index=default_ix)
+        
+        # Clear stale session_state keys when ticker changes
+        if 'last_news_ticker' not in st.session_state:
+            st.session_state['last_news_ticker'] = None
+        
+        if news_ticker != st.session_state['last_news_ticker']:
+            # Cleanup old summary keys
+            keys_to_remove = [k for k in st.session_state.keys() if k.startswith('sum_') or k.startswith('btn_')]
+            for k in keys_to_remove:
+                del st.session_state[k]
+            st.session_state['last_news_ticker'] = news_ticker
+        
         if news_ticker:
             selected_row = top_10[top_10['Ticker'] == news_ticker]
             if not selected_row.empty:
