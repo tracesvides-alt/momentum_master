@@ -1738,29 +1738,31 @@ def render_momentum_master():
             with st.spinner(f"Fetching news for {news_ticker} ({c_name})..."):
                 news_items = get_ticker_news(news_ticker, company_name=c_name)
                 if news_items:
-                    for item in news_items:
+                    # Initialize summary storage for this ticker if not exists
+                    if 'news_summaries' not in st.session_state:
+                        st.session_state['news_summaries'] = {}
+                    if news_ticker not in st.session_state['news_summaries']:
+                        st.session_state['news_summaries'][news_ticker] = {}
+                    
+                    for idx, item in enumerate(news_items):
                         pub_str = f" ({item['publisher']})" if item['publisher'] != 'Unknown' else ""
                         with st.expander(f"📰 {item['title']}{pub_str}", expanded=True):
                             st.write(f"**Published**: {item['time']}")
                             st.write(f"[Read Article]({item['link']})")
 
-                            # Unique key for button. Use link hash to ensure uniqueness even across tickers/reruns.
-                            import hashlib
-                            link_hash = hashlib.md5(item['link'].encode()).hexdigest()[:8]
-                            btn_key = f"sum_{news_ticker}_{link_hash}" 
+                            # Check if summary already exists for this article
+                            summary_key = str(idx)
+                            stored_summary = st.session_state['news_summaries'][news_ticker].get(summary_key)
                             
-                            # Session State Check
-                            if btn_key not in st.session_state:
-                                st.session_state[btn_key] = None
-                            
-                            if st.session_state[btn_key]:
+                            if stored_summary:
                                 st.success("✅ Deep Summary Generated")
-                                st.info(st.session_state[btn_key])
+                                st.info(stored_summary)
                             else:
-                                if st.button("✨ AI詳細要約 (Read Article)", key=f"btn_{btn_key}"):
+                                btn_key = f"btn_{news_ticker}_{idx}"
+                                if st.button("✨ AI詳細要約 (Read Article)", key=btn_key):
                                     with st.spinner("記事を解析中... (これには数秒かかります)"):
                                         deep_val = get_article_summary(item['link'])
-                                        st.session_state[btn_key] = deep_val
+                                        st.session_state['news_summaries'][news_ticker][summary_key] = deep_val
                                         st.rerun()
                 else:
                     st.info(f"No specific news found for {news_ticker} in the last 3 days.")
