@@ -1,0 +1,13 @@
+streamlit
+yfinance
+pandas
+matplotlib
+seaborn
+pytest
+requests
+lxml
+plotly
+newspaper3k
+nltk
+deep-translator
+lxml_html_clean
