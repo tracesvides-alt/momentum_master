@@ -446,6 +446,10 @@ def get_ticker_news(ticker, company_name=None):
                 display_title = title 
                 translated_summary = ""
 
+            # Skip if title is empty after translation
+            if not display_title or display_title.strip() == '':
+                continue
+
             results.append({
                 'title': display_title,
                 'original_title': title,
