@@ -891,49 +891,28 @@ st.set_page_config(
 def main():
     # st.set_page_config is now called globally at line 15 (actually 20 in original, but we replaced it)
     
-   # --- Hide Streamlit Style (Sidebar RESTORED Version) ---
+# --- Hide Streamlit Style (Force Z-Index Method) ---
     hide_st_style = """
         <style>
-        /* 1. ヘッダーの背景を透明にする（左上のボタンは見せるため） */
+        /* 1. ヘッダーの背景は透明にする */
         header[data-testid="stHeader"] {
             background: transparent !important;
             border-bottom: none !important;
+            pointer-events: none !important; /* ヘッダー自体のクリック判定を消す */
         }
 
-        /* 2. 【修正】右上の「アクション要素」だけを狙い撃ちで消す */
-        /* stToolbar は消さない（ここにハンバーガーがいる可能性があるため） */
-        [data-testid="stHeaderActionElements"] {
-            display: none !important;
-        }
-        
-        /* 3. 上部の虹色の線を消す */
-        [data-testid="stDecoration"] {
-            display: none !important;
-        }
+        /* 2. 右上の不要な要素を消す */
+        [data-testid="stHeaderActionElements"] { display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        [data-testid="stDecoration"] { display: none !important; }
+        [data-testid="stStatusWidget"] { display: none !important; }
 
-        /* 4. ランニング中のステータス（右上の人型など）を消す */
-        [data-testid="stStatusWidget"] {
-            display: none !important;
-        }
+        /* 3. フッター完全消去 */
+        footer { visibility: hidden !important; height: 0px !important; }
+        [data-testid="stFooter"] { display: none !important; }
+        div[class^='viewerBadge'] { display: none !important; }
 
-        /* 5. フッター（Streamlitで構築...）を完全に消す */
-        footer {
-            visibility: hidden !important;
-            height: 0px !important;
-        }
-        [data-testid="stFooter"] {
-            display: none !important;
-        }
-        #MainMenu {
-            display: none !important;
-        }
-        
-        /* Cloudのロゴ対策 */
-        div[class^='viewerBadge'] {
-            display: none !important;
-        }
-
-        /* 6. コンテンツ位置の調整 */
+        /* 4. レイアウト調整 */
         .block-container {
             padding-top: 3rem !important;
         }
@@ -1749,10 +1728,10 @@ def render_momentum_master():
                             st.write(f"**Published**: {item['time']}")
                             st.write(f"[Read Article]({item['link']})")
 
-                            # Deep Summary Button
-                            # Unique key for button is needed. Use URL or Title or Time hash.
-                            # Using link + time to be relatively unique
-                            btn_key = f"sum_{news_ticker}_{item['time']}" 
+                            # Unique key for button. Use link hash to ensure uniqueness even across tickers/reruns.
+                            import hashlib
+                            link_hash = hashlib.md5(item['link'].encode()).hexdigest()[:8]
+                            btn_key = f"sum_{news_ticker}_{link_hash}" 
                             
                             # Session State Check
                             if btn_key not in st.session_state:
