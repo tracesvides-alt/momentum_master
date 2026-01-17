@@ -1775,8 +1775,9 @@ def render_momentum_master():
                                 st.success("✅ Deep Summary Generated")
                                 st.info(stored_summary)
                             else:
-                                btn_key = f"btn_{news_ticker}_{idx}"
-                                if st.button("✨ AI詳細要約 (Read Article)", key=btn_key):
+                                # Using checkbox instead of button to avoid Streamlit Cloud bug
+                                chk_key = f"chk_{news_ticker}_{idx}"
+                                if st.checkbox("✨ AI詳細要約を表示", key=chk_key, value=False):
                                     with st.spinner("記事を解析中... (これには数秒かかります)"):
                                         deep_val = get_article_summary(item['link'])
                                         st.session_state['news_summaries'][news_ticker][summary_key] = deep_val
