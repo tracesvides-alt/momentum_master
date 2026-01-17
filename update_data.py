@@ -33,8 +33,11 @@ def main():
         
         # 更新時刻を記録
         txt_path = "data/last_updated.txt"
+        # Use JST (UTC+9) for Japan time
+        from datetime import timezone, timedelta
+        JST = timezone(timedelta(hours=9))
         with open(txt_path, "w") as f:
-            f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            f.write(datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"))
         print(f"✅ Saved {txt_path}")
             
     else:
