@@ -1709,7 +1709,7 @@ def render_momentum_master():
     
     st.markdown("---")
     st.subheader("📰 Latest News & Analysis")
-    # ... (Keeping existing news logic, assuming it's short enough or collapsible)
+    st.caption("プルダウンから Top 10 銘柄を選んで、最新ニュースをチェック（AIによるタイトル翻訳・要約機能付き）")
     
     # Select box default to top 1
     default_ix = 0 if len(top_tickers) > 0 else None
