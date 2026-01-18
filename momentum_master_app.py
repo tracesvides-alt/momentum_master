@@ -1,5 +1,7 @@
 import streamlit as st
 import yfinance as yf
+from deep_translator import GoogleTranslator
+import time
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -12,6 +14,7 @@ import plotly.express as px
 import re
 import pickle
 import os
+import json
 from deep_translator import GoogleTranslator
 from newspaper import Article, Config
 import nltk
@@ -91,7 +94,7 @@ def get_article_summary(url):
 import market_logic
 import importlib
 importlib.reload(market_logic)
-from market_logic import SECTOR_DEFINITIONS, TICKER_TO_SECTOR, STATIC_MOMENTUM_WATCHLIST, THEMATIC_ETFS
+from market_logic import SECTOR_DEFINITIONS, TICKER_TO_SECTOR, STATIC_MOMENTUM_WATCHLIST, THEMATIC_ETFS, get_ai_stock_picks, SECTOR_TO_ETF
 
 # --- Risk Management Helpers ---
 def get_ticker_news(ticker, company_name=None):
@@ -808,35 +811,95 @@ def calculate_simulated_return(portfolio_df, weight_pct=1.0):
 # Constants are imported from market_logic.
 
 
-# --- Metadata Helpers ---
-@st.cache_data(ttl=86400) # Cache metadata for a day
+@st.cache_data(ttl=86400)
+def translate_to_japanese(text):
+    """
+    Translates text to Japanese using deep_translator.
+    """
+    if not text:
+        return ""
+    try:
+        # Simple truncation to avoid limits (Google Translate max 5000 chars, usually fine)
+        translator = GoogleTranslator(source='auto', target='ja')
+        return translator.translate(text)
+    except Exception as e:
+        return text
+
+@st.cache_data(ttl=None)
+def load_metadata_cache(mtime):
+    """
+    メタデータキャッシュを読み込み
+    mtime: キャッシュ無効化のための更新時刻パラメータ
+    Returns: dict {ticker: {'name': str, 'industry': str, 'summary': str}}
+    """
+    cache_path = "data/metadata_cache.json"
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+@st.cache_data(ttl=3600)  # フォールバック用キャッシュ（1時間）
 def get_ticker_metadata(ticker):
     """
-    Fetches basic info (Short Name, Sector/Industry) for a single ticker.
-    Used only for Top 5-10 to save API calls.
-    Returns: (name, category_label)
+    Fetches info (Short Name, Sector/Industry, Summary) for a single ticker.
+    Returns: (name, category_label, summary_text)
+    キャッシュ優先、なければAPI呼び出し
     """
-    # 1. Check Scraped Cache (Fastest)
-    if 'dynamic_names' in st.session_state:
-        if ticker in st.session_state['dynamic_names']:
-             return st.session_state['dynamic_names'][ticker], '🌊 Market Mover'
-
-    # 2. Fallback to API (Slow)
+    # 1. Try Cache First (Fast Path)
+    # ファイルの更新時刻を取得してキャッシュキーにする
+    cache_path = "data/metadata_cache.json"
+    mtime = 0
+    if os.path.exists(cache_path):
+        mtime = os.path.getmtime(cache_path)
+    
+    metadata_cache = load_metadata_cache(mtime)
+    
+    if ticker in metadata_cache:
+        data = metadata_cache[ticker]
+        name = data.get('name', ticker)
+        industry = data.get('industry', '')
+        summary = data.get('summary', '')
+        
+        # category優先順位: industry > 'Unknown'
+        category = industry if industry else '🌊 Market Mover'
+        
+        return name, category, summary
+    
+    # 2. Fallback to API (Slow Path - for new tickers not in cache)
     try:
         t = yf.Ticker(ticker)
         info = t.info
         name = info.get('shortName', info.get('longName', ticker))
         
         # Priority: Industry > Sector > 'Unknown'
-        # e.g. "Aerospace & Defense" is better than "Industrials"
         industry = info.get('industry')
         sector = info.get('sector')
-        
         category = industry if industry else (sector if sector else '🌊 Market Mover')
         
-        return name, category
+        # Summary (First 160 chars, no translation for performance)
+        summary_en = info.get('longBusinessSummary', '')
+        summary = ""
+        if summary_en:
+            summary_en = summary_en.replace('\n', ' ').strip()
+            if len(summary_en) > 160:
+                summary_en = summary_en[:160]
+            # 翻訳（フォールバック用：通常はキャッシュから日本語が読み込まれる）
+            try:
+                summary = translate_to_japanese(summary_en)
+            except:
+                summary = summary_en  # 翻訳失敗時は英語のまま
+        
+        return name, category, summary
     except:
-        return ticker, '🌊 Market Mover'
+        # 3. Last Resort Fallback
+        if 'dynamic_names' in st.session_state:
+            if ticker in st.session_state['dynamic_names']:
+                return st.session_state['dynamic_names'][ticker], '🌊 Market Mover', ''
+        
+        return ticker, '🌊 Market Mover', ''
 
 @st.cache_data(ttl=None) # TTLなし。引数のmtimeが変わるまでキャッシュ維持
 def load_cached_data(mtime_param):
@@ -1276,6 +1339,14 @@ def render_momentum_master():
         index=0, 
         format_func=lambda x: period_map[x]
     )
+    
+    # --- Market Regime Auto-Detection (AI Attitude) ---
+    # Calc Regime
+    regime_key, regime_label, regime_color = market_logic.calculate_market_regime(df_metrics)
+    selected_regime = regime_key
+    
+    # Hide the big banner (User wants it next to title)
+    # st.markdown(f"""...""") 
 
     if df_metrics is None or df_metrics.empty:
         st.error("Data cache is empty and live fetch failed.")
@@ -1355,7 +1426,7 @@ def render_momentum_master():
         
         # 1. Metadata Fetch
         static_sec = TICKER_TO_SECTOR.get(t)
-        d_name, d_cat = get_ticker_metadata(t)
+        d_name, d_cat, _ = get_ticker_metadata(t)
         
         names.append(d_name)
         
@@ -1515,7 +1586,7 @@ def render_momentum_master():
     for _, row in bottom_10.iterrows():
         t = row['Ticker']
         static_sec = TICKER_TO_SECTOR.get(t)
-        d_name, d_cat = get_ticker_metadata(t)
+        d_name, d_cat, _ = get_ticker_metadata(t)
         
         b_names.append(d_name)
         if static_sec:
@@ -1733,7 +1804,7 @@ def render_momentum_master():
             if not selected_row.empty:
                 c_name = selected_row.iloc[0]['Name']
             else:
-                c_name, _ = get_ticker_metadata(news_ticker)
+                c_name, _, _ = get_ticker_metadata(news_ticker)
 
             with st.spinner(f"Fetching news for {news_ticker} ({c_name})..."):
                 news_items = get_ticker_news(news_ticker, company_name=c_name)
@@ -1797,7 +1868,8 @@ def render_momentum_master():
         "⛏️ Resources & Materials": "⛏️ 資源 & 素材",
         "📱 Tech: Communication": "📱 テック: 通信",
         "🏠 Homebuilders & Residential": "🏠 住宅 & 建設",
-        "⚛️ Tech: Quantum Computing": "⚛️ テック: 量子コンピュータ"
+        "⚛️ Tech: Quantum Computing": "⚛️ テック: 量子コンピュータ",
+        "🏗️ Engineering & Construction": "🏗️ エンジニアリングと建設"
     }
     
     def render_sector_heatmap(df, period):
@@ -1935,9 +2007,275 @@ def render_momentum_master():
         with tab5:
             render_sector_heatmap(df_metrics, selected_period)
 
-
     
     # --- Part 4: 🤖 AI Portfolio Builder ---
+    
+    # --- UI: 🎯 AI Stock Picks (Before AI Portfolio Builder) ---
+    st.markdown("---")
+    
+    # Custom Header with Regime Label
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+        <h3 style="margin: 0;">🎯 AI銘柄ピック</h3>
+        <div style="
+            background-color: #1E1E1E; 
+            border: 1px solid {regime_color}; 
+            color: {regime_color}; 
+            padding: 2px 10px; 
+            border-radius: 12px; 
+            font-size: 0.9rem; 
+            font-weight: bold;
+            display: flex; align-items: center; gap: 5px;
+        ">
+            <span>🧠 {regime_label}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("投資期間別オススメ銘柄 (詳細)", expanded=True):
+        st.caption("短期・中期・長期の各観点からスコアリングし、トップ3銘柄を自動選出します。")
+        
+        # Get ETF metrics from the same cache (they are in df_metrics)
+        etf_tickers = list(THEMATIC_ETFS.values())
+        etf_df = df_metrics[df_metrics['Ticker'].isin(etf_tickers)]
+        
+        # Get AI picks (news checker is optional, skip for performance)
+        # Pass the selected regime
+        ai_picks = get_ai_stock_picks(df_metrics, etf_metrics=etf_df, news_checker=None, top_n=3, regime=selected_regime)
+        
+        # Display in 3 columns
+        col_short, col_mid, col_long = st.columns(3)
+        
+        timeframe_config = [
+            (col_short, 'short', '⚡ 短期 (1-2週間)', '#FF6B6B'),
+            (col_mid, 'mid', '📈 中期 (1-3ヶ月)', '#4ECDC4'),
+            (col_long, 'long', '🏆 長期 (6ヶ月+)', '#F4A460'),
+        ]
+        
+        for col, tf_key, tf_label, color in timeframe_config:
+            with col:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, {color}22, {color}11); 
+                            border-left: 4px solid {color}; 
+                            padding: 8px 12px; 
+                            border-radius: 8px; 
+                            margin-bottom: 10px;">
+                    <span style="font-weight: 700; font-size: 0.95rem;">{tf_label}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                picks = ai_picks.get(tf_key, [])
+                
+                if not picks:
+                    st.info("データ不足")
+                    continue
+                    
+                for i, pick in enumerate(picks):
+                    ticker = pick['ticker']
+                    score = pick['score']
+                    reason = pick['reason']
+                    metrics = pick['metrics']
+                    sector = metrics.get('sector', '')[:15]
+                    crash_risk = pick.get('crash_risk', 0)
+                    
+                    # Key metric based on timeframe
+                    if tf_key == 'short':
+                        key_metric = f"5d: {metrics['5d']:+.1f}%"
+                    elif tf_key == 'mid':
+                        key_metric = f"1mo: {metrics['1mo']:+.1f}%"
+                    else:
+                        key_metric = f"1y: {metrics['1y']:+.1f}%"
+                    
+                    # Build risk factor breakdown for tooltip
+                    risk_factors = []
+                    rsi = metrics.get('RSI', 50)
+                    if rsi > 75:
+                        risk_factors.append(f"RSI過熱({rsi:.0f})")
+                    beta = metrics.get('Beta', 1.0)
+                    if beta > 2:
+                        risk_factors.append(f"高Beta({beta:.1f})")
+                    sma_dev = metrics.get('SMA50_Deviation', 0)
+                    if sma_dev > 20:
+                        risk_factors.append(f"SMA乖離+{sma_dev:.0f}%")
+                    inst_own = metrics.get('InstOwnership', 0)
+                    if inst_own > 0.8:
+                        risk_factors.append(f"機関{inst_own*100:.0f}%")
+                    
+                    risk_detail = " / ".join(risk_factors) if risk_factors else ""
+                    
+                    # Crash risk badge with numerical display
+                    if crash_risk > 50:
+                        risk_badge = f'<span style="background: #FF4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 6px;" title="{risk_detail}">🔴高リスク</span>'
+                        risk_bar_color = "#FF4444"
+                    elif crash_risk > 30:
+                        risk_badge = f'<span style="background: #FFA500; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 6px;" title="{risk_detail}">🟠中リスク</span>'
+                        risk_bar_color = "#FFA500"
+                    elif crash_risk < 15:
+                        risk_badge = f'<span style="background: #28A745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 6px;">🟢低リスク</span>'
+                        risk_bar_color = "#28A745"
+                    else:
+                        risk_badge = ''
+                        risk_bar_color = "#888"
+                    
+                    # Risk factor display (show below card if factors exist)
+                    risk_factors_html = ""
+                    if risk_factors and crash_risk > 30:
+                        risk_factors_html = f'<div style="font-size: 0.65rem; color: #FF6B6B; margin-top: 4px; opacity: 0.9;">⚡ {risk_detail}</div>'
+                    
+                    # Get company name and industry
+                    company_name, industry, summary = get_ticker_metadata(ticker)
+                    
+                    # Prepare short summary
+                    short_summary = summary[:80] + "..." if len(summary) > 80 else summary
+                    if not short_summary:
+                         short_summary = f"{company_name}は{industry}セクターの主要企業です。"
+                    
+
+                    st.markdown(f"""
+                    <div style="background: rgba(255,255,255,0.05); 
+                                border-radius: 8px; 
+                                padding: 10px 12px; 
+                                margin-bottom: 8px;
+                                border: 1px solid rgba(255,255,255,0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div>
+                                <span style="font-weight: 700; font-size: 1.1rem; color: {color};">
+                                    #{i+1} {ticker} <span style="font-size: 0.8rem; color: #aaa;">(Score: {score:.1f})</span>{risk_badge}
+                                </span>
+                                <div style="font-size: 0.8rem; color: #ccc; margin-top: 2px;">
+                                    {company_name} | <span style="color: #4ECDC4;">{industry}</span>
+                                </div>
+                            </div>
+                            <span style="font-size: 0.85rem; opacity: 0.8; font-weight: bold;">
+                                ${metrics['price']:.2f}
+                            </span>
+                        </div>
+                        <div style="font-size: 0.75rem; opacity: 0.7; margin: 6px 0 8px 0; font-style: italic; color: #eee; border-left: 2px solid #555; padding-left: 8px;">
+                            {short_summary}
+                        </div>
+                        <div style="font-size: 0.9rem; font-weight: 600; color: #4CAF50; margin-bottom: 4px;">
+                            {key_metric}
+                        </div>
+                        <div style="font-size: 0.72rem; opacity: 0.6;">
+                            💡 {reason}
+                        </div>
+                        {risk_factors_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Score Breakdown Expander
+                    with st.expander("📊 スコア詳細を見る", expanded=False):
+                        details = pick.get('details', [])
+                        if details:
+                            # Color code details
+                            for d in details:
+                                if ": +" in d:
+                                    color = "#4CAF50" # Green for bonus
+                                    d_fmt = d.replace(":", f': <span style="color:{color}; font-weight:bold;">') + '</span>'
+                                elif ": -" in d:
+                                    color = "#FF4444" # Red for penalty
+                                    d_fmt = d.replace(":", f': <span style="color:{color}; font-weight:bold;">') + '</span>'
+                                else:
+                                    d_fmt = d
+                                st.markdown(f"- {d_fmt}", unsafe_allow_html=True)
+                        else:
+                            st.write("詳細データなし")
+        
+        # Risk badge legend
+        st.markdown("""
+        <div style="margin-top: 12px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.75rem;">
+            <span style="font-weight: 600; opacity: 0.9;">📊 リスクバッジ凡例:</span>
+            <span style="background: #FF4444; color: white; padding: 1px 5px; border-radius: 3px; margin-left: 8px;">🔴高リスク</span> <span style="opacity: 0.7;">(50+)</span>
+            <span style="background: #FFA500; color: white; padding: 1px 5px; border-radius: 3px; margin-left: 8px;">🟠中リスク</span> <span style="opacity: 0.7;">(30-50)</span>
+            <span style="background: #28A745; color: white; padding: 1px 5px; border-radius: 3px; margin-left: 8px;">🟢低リスク</span> <span style="opacity: 0.7;">(0-15)</span>
+            <br><span style="opacity: 0.6; margin-top: 4px; display: inline-block;">※リスクスコアはRSI過熱・高Beta・SMA乖離・機関保有率・ShortRatio等から算出。高リスク銘柄はスコアリングでペナルティが適用されます。</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Scoring Explanation Expander
+        with st.expander("📊 スコアリング指標の詳細説明", expanded=False):
+            st.markdown("""
+            ### 推奨スコアの計算方法
+            
+            AI推奨スコアは、短期・中期・長期それぞれの投資期間に最適化された指標を重み付けして計算しています。
+            
+            ---
+            
+            #### ⚡ 短期スコア（1-2週間）
+            
+            **重視する指標:**
+            
+            | 指標 | 重み | 高スコア基準 | 意味 |
+            |------|------|-------------|------|
+            | **RVOL（相対出来高）** | 30% | 2.0倍以上（MAX: 5.0倍） | 直近出来高 ÷ 20日平均出来高。出来高急増は価格変動の信頼性を示す |
+            | **52週高値接近度** | 20% | 95%以上（100%超で最高） | 現在価格 ÷ 52週高値 × 100。新高値更新は最強の買いシグナル |
+            | **5日間リターン** | 20% | +10%〜+20%（最適） | 短期的な価格勢い。+60%以上は過熱でペナルティ |
+            | **RSI** | 10% | 50〜75（強気かつ健全） | 買われすぎ・売られすぎ指標。85以上は過熱でペナルティ |
+            | **SMA50超え** | 5% | 50日移動平均線の上 | トレンド継続を示す |
+            | **ニュース有無** | 10% | 最近3日以内にニュース | カタリスト（材料）として評価 |
+            | **セクターETF 5日** | 5% | セクター全体が上昇 | セクター全体の勢いが追い風になるか |
+            
+            **ペナルティ要因:**
+            - 空回り: RVOL高いが株価上昇弱い（出来高だけ増えても株価が動かない = 売り圧力）
+            - 暴落リスク: RSI>85、SMA50乖離>40%など
+            
+            ---
+            
+            #### 📈 中期スコア（1-3ヶ月）
+            
+            **重視する指標:**
+            
+            | 指標 | 重み | 高スコア基準 | 意味 |
+            |------|------|-------------|------|
+            | **1ヶ月リターン** | 25% | +20%〜+40%（最適） | 中期モメンタム。+100%以上は過熱 |
+            | **3ヶ月リターン** | 15% | 上位パーセンタイル | 中期的なトレンドの強さ |
+            | **ゴールデンクロス/SMA50超え** | 15% | 50日線が200日線を上抜け | トレンド転換・継続シグナル |
+            | **BBスクイーズ** | 15% | ボリンジャーバンド幅狭い | エネルギー蓄積中、ブレイクアウト前兆 |
+            | **RSI** | 10% | 50〜75 | 持続可能な強気状態 |
+            | **RVOL** | 10% | 1.5倍以上 | 出来高の裏付け |
+            | **セクターETF 1ヶ月** | 10% | セクター全体が上昇 | セクター順風 |
+            
+            **ペナルティ要因:**
+            - 短期急騰（騙し）: 5日騰落が1ヶ月騰落の80%以上（短期集中型は持続性低い）
+            - Vol増/株価弱: 出来高増えても株価が伸びない
+            
+            ---
+            
+            #### 🏆 長期スコア（6ヶ月以上）
+            
+            **重視する指標:**
+            
+            | 指標 | 重み | 高スコア基準 | 意味 |
+            |------|------|-------------|------|
+            | **トレンド安定度** | 30% | 1年>6ヶ月>3ヶ月>0% | ミネルヴィニのトレンドテンプレート。安定した上昇トレンド |
+            | **1年リターン** | 20% | +50%〜+150%（最適） | マルチバガーゾーン。長期アルファ |
+            | **年初来リターン** | 15% | 上位パーセンタイル | 今年の実績 |
+            | **SMA200超え** | 10% | 200日移動平均線の上 | 長期上昇トレンド |
+            | **Beta（ベータ値）** | 10% | 1.0〜2.5 | 市場より高いボラティリティ。モメンタム投資に適した値動き |
+            | **空売り比率** | 5% | 2〜5 | ショートスクイーズの燃料 |
+            | **セクターETF** | 5% | セクター全体が好調 | 長期セクター順風 |
+            | **RVOL** | 5% | 1.0倍以上 | 出来高の裏付け |
+            
+            **ペナルティ要因:**
+            - Pump & Dump: 1年リターン高いが最大ドローダウン>60%（急騰急落パターン）
+            - 崩壊チャート: 52週高値から-50%以上下落
+            
+            ---
+            
+            #### 📖 指標用語集
+            
+            - **RVOL（相対出来高）**: 直近の出来高が20日平均の何倍か。2.0倍以上で「出来高急増」と判断
+            - **RSI（相対力指数）**: 0-100の範囲。50以上で強気、70以上で買われすぎ、30以下で売られすぎ
+            - **SMA50/SMA200**: 50日移動平均線/200日移動平均線。価格がこれらを上回ると上昇トレンド
+            - **ゴールデンクロス**: 短期線（50日）が長期線（200日）を下から上に抜ける強気シグナル
+            - **BBスクイーズ**: ボリンジャーバンドの幅が狭くなっている状態。大きな値動きの前兆
+            - **Beta**: 市場全体との連動性。1.0は市場と同じ、2.0は市場の2倍の値動き
+            - **空売り比率**: 空売りされている株数の比率。高いとショートスクイーズの可能性
+            
+            """)
+        
+        st.caption("※ 推奨スコアは各種指標（リターン、RSI、RVOL、セクターETF等）の重み付け合計で計算されます。")
+
     st.markdown("---")
     st.subheader("🤖 AI Portfolio Builder (Alpha)")
     st.caption("現在の市場環境（Momentum/Trend/Correlation）に基づき、AIが推奨する3つのポートフォリオ案です。")
