@@ -518,12 +518,32 @@ def calculate_momentum_metrics(tickers):
                 # Squeeze: Current width < 0.8 * Average Width(20)
                 bb_width_series = (bb_upper - bb_lower) / sma20
                 avg_width_20 = bb_width_series.rolling(window=20).mean().iloc[-1]
-                metrics['Is_Squeeze'] = metrics['BB_Width'] < (avg_width_20 * 0.8) if not pd.isna(avg_width_20) else False
+                
+                # Squeeze condition threshold
+                squeeze_threshold = avg_width_20 * 0.8 if not pd.isna(avg_width_20) else 0.0
+                metrics['Is_Squeeze'] = metrics['BB_Width'] < squeeze_threshold
+                
+                # Calculate Squeeze Duration (How many consecutive days)
+                squeeze_days = 0
+                if metrics['Is_Squeeze']:
+                    squeeze_days = 1
+                    # Look back up to 20 days
+                    recent_widths = bb_width_series.iloc[-20:-1][::-1] # Reverse to check backwards from yesterday
+                    # Check against dynamic threshold (using historical rolling mean would be more accurate but expensive)
+                    # Approximation: Use current threshold
+                    for w in recent_widths:
+                        if w < squeeze_threshold:
+                            squeeze_days += 1
+                        else:
+                            break
+                metrics['Squeeze_Days'] = squeeze_days
+
             else:
                 metrics['BB_Upper'] = 999999
                 metrics['BB_Lower'] = 0
                 metrics['BB_Width'] = 1.0
                 metrics['Is_Squeeze'] = False
+                metrics['Squeeze_Days'] = 0
 
             # 3. 52-Week High/Low
             metrics['High52'] = t_data['Close'].max()
@@ -889,10 +909,10 @@ def calculate_short_term_score(row, df_all, etf_perf, regime='neutral'):
     if 50 <= rsi <= 75:
         score += 10
         details.append(f"RSI適正({rsi:.0f}): +10")
-    elif 75 < rsi <= 85:
-        score += 0 # Neutral (Strong but risky)
-        details.append(f"RSI高値圏({rsi:.0f}): 0")
-    elif rsi > 85:
+    elif 75 < rsi <= 90: # Relaxed threshold from 85 to 90
+        score += 5   # Give small bonus even for high RSI in strong momentum
+        details.append(f"RSI強気圏({rsi:.0f}): +5")
+    elif rsi > 90:
         score -= 10
         details.append(f"⚠️RSI過熱({rsi:.0f}): -10")
     elif 40 <= rsi < 50:
@@ -914,14 +934,25 @@ def calculate_short_term_score(row, df_all, etf_perf, regime='neutral'):
         score += 10
         details.append("News: +10")
     
-    # Sector ETF 5d (5%) - Sector tailwind
+    # Sector ETF 5d (5%) - Sector tailwind & Relative Strength
     sector = TICKER_TO_SECTOR.get(row.get('Ticker', '').upper(), '')
     etf = SECTOR_TO_ETF.get(sector, None)
     if etf and etf in etf_perf:
         etf_5d = etf_perf[etf].get('5d', 0)
+        # 1. Sector Tailwind check
         pts = 0.05 * _normalize_score(etf_5d, -5, 10)
         score += pts
         details.append(f"セクター({etf_5d:.1f}%): +{pts:.1f}")
+        
+        # 2. Relative Strength (Alpha) vs Sector (Optional Bonus)
+        # If stock is outperforming its sector significantly
+        alpha = ret_5d - etf_5d
+        if alpha > 5.0:
+            score += 5
+            details.append(f"対セクター強(+{alpha:.1f}%): +5")
+        elif alpha < -5.0:
+            score -= 5
+            details.append(f"対セクター弱({alpha:.1f}%): -5")
     
     # --- Distribution / Churn Check ---
     # Stricter Effort vs Result Logic
@@ -1031,10 +1062,17 @@ def calculate_mid_term_score(row, df_all, etf_perf, regime='neutral'):
     # BB Squeeze (15%) - Energy charging state
     is_squeeze = row.get('Is_Squeeze', False)
     bb_width = row.get('BB_Width', 0.1)
+    squeeze_days = row.get('Squeeze_Days', 0)
     
     if is_squeeze:
-        score += 15
-        details.append("BBスクイーズ: +15")
+        pts = 15
+        # Bonus for long squeeze (energy accumulation)
+        if squeeze_days >= 3:
+            pts += 5
+            details.append(f"BBスクイーズ({squeeze_days}日): +{pts}")
+        else:
+            details.append("BBスクイーズ: +15")
+        score += pts
     elif bb_width < 0.1:
         score += 12
         details.append("BB幅極狭: +12")
@@ -1045,26 +1083,41 @@ def calculate_mid_term_score(row, df_all, etf_perf, regime='neutral'):
         score += 4.5
         details.append("BB幅広: +4.5")
     
-    # RSI 50-75 range (10%) - reduced importance for mid-term
+    # RSI 50-75 range (10%) - Mid-term prefers stability over extreme heat
     rsi = row.get('RSI', 50)
     if 50 <= rsi <= 75:
         score += 10
         details.append(f"RSI適正({rsi:.0f}): +10")
-    elif rsi > 75:
-        score += 6
-        details.append(f"RSI過熱({rsi:.0f}): +6")
+    elif 75 < rsi <= 85:
+        # User defined penalty: -5 pts
+        score -= 5
+        details.append(f"RSI加熱気味({rsi:.0f}): -5")
+    elif rsi > 85:
+        # User defined penalty: -15 pts
+        score -= 15
+        details.append(f"⚠️RSI過熱({rsi:.0f}): -15")
     else:
         score += 4
         details.append(f"RSI弱({rsi:.0f}): +4")
     
-    # Sector ETF 1mo (10%)
+    # Sector ETF 1mo (10%) & Relative Strength
     sector = TICKER_TO_SECTOR.get(row.get('Ticker', '').upper(), '')
     etf = SECTOR_TO_ETF.get(sector, None)
     if etf and etf in etf_perf:
         etf_1mo = etf_perf[etf].get('1mo', 0)
+        # 1. Sector Tailwind
         pts = 0.10 * _normalize_score(etf_1mo, -10, 20)
         score += pts
         details.append(f"セクター({etf_1mo:.1f}%): +{pts:.1f}")
+
+        # 2. Relative Strength vs Sector
+        alpha = ret_1mo - etf_1mo
+        if alpha > 10.0:
+            score += 5
+            details.append(f"対セクター強(+{alpha:.1f}%): +5")
+        elif alpha < -5.0:
+            score -= 5
+            details.append(f"対セクター弱({alpha:.1f}%): -5")
     
     # RVOL trend (10%) - Volume confirmation
     rvol = row.get('RVOL', 1.0)
