@@ -2516,6 +2516,9 @@ def render_momentum_master():
                     """)
                 
                 # --- 2. Interactive Chart (Plotly) ---
+                # Title outside chart to prevent overlap
+                st.markdown(f"##### 📈 {analyzer_ticker} 強化版モメンタムチャート")
+                
                 # Candlestick
                 fig = go.Figure(data=[go.Candlestick(x=df_hist.index,
                                 open=df_hist['Open'],
@@ -2567,39 +2570,36 @@ def render_momentum_master():
                         x=date, y=y_anchor,
                         text=symbol_text,
                         showarrow=True,
-                        arrowhead=2,
-                        arrowsize=1,
-                        arrowwidth=1.5,
+                        arrowhead=1, # Simpler arrowhead
+                        arrowsize=0.8, # Smaller head
+                        arrowwidth=1.0, # Thinner line
                         arrowcolor=marker_color,
                         ax=0,
-                        ay=ay,
+                        ay=ay * 0.6, # Shorter arrow (was 25, now ~15)
                         bgcolor=bgcolor,
                         bordercolor="#ffffff",
                         borderwidth=1,
-                        borderpad=3,
-                        opacity=0.9,
-                        font=dict(color="white", size=10, weight="bold"),
+                        borderpad=1, # Tighter box
+                        opacity=0.8,
+                        font=dict(color="white", size=8, weight="bold"), # Smaller font
                         hovertext=hover_text
                     )
 
                 fig.update_layout(
-                    title=dict(
-                        text=f"{analyzer_ticker} 強化版モメンタムチャート", 
-                        font=dict(size=14),
-                        x=0, y=1, xanchor='left', yanchor='top'
-                    ),
-                    yaxis_title="", # Save space
+                    # Title Removed from here to avoid overlap
+                    yaxis_title="", 
+                    yaxis_side="right", # Move price axis to right (TradingView style)
                     xaxis_title="",
                     xaxis_rangeslider_visible=False,
-                    height=400, # Compact height for mobile
-                    margin=dict(l=10, r=10, t=40, b=40), # Increased bottom margin for legend
+                    height=450, # Slightly Taller
+                    margin=dict(l=0, r=10, t=10, b=40), # Left margin 0, Small right margin for axis
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
                     font=dict(color='white'),
                     showlegend=True,
                     legend=dict(
                         orientation="h",
-                        yanchor="top", y=-0.15, # Position below chart
+                        yanchor="top", y=-0.1, # Position below chart
                         xanchor="center", x=0.5, # Center horizontally
                         font=dict(size=10),
                         bgcolor="rgba(0,0,0,0)"

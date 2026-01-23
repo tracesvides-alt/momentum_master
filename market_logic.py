@@ -445,7 +445,7 @@ SECTOR_DEFINITIONS = {
         "ALB", "SQM",  "LAC", "SGML", 
         "NMG",  # Nouveau Monde Graphite (北米の黒鉛) ★追加
         "WWR",  # Westwater Resources (米国の黒鉛) ★追加
-        "CRML", "CC"
+        "CC"
     ],
 
 
