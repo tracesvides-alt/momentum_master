@@ -2592,15 +2592,15 @@ def render_momentum_master():
                     xaxis_title="",
                     xaxis_rangeslider_visible=False,
                     height=400, # Compact height for mobile
-                    margin=dict(l=10, r=10, t=40, b=10), # Tight margins
+                    margin=dict(l=10, r=10, t=40, b=40), # Increased bottom margin for legend
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
                     font=dict(color='white'),
                     showlegend=True,
                     legend=dict(
                         orientation="h",
-                        yanchor="bottom", y=1.02,
-                        xanchor="right", x=1,
+                        yanchor="top", y=-0.15, # Position below chart
+                        xanchor="center", x=0.5, # Center horizontally
                         font=dict(size=10),
                         bgcolor="rgba(0,0,0,0)"
                     ),

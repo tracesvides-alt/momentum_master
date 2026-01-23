@@ -2358,7 +2358,7 @@ def analyze_stock_history(ticker, period="1y"):
         # Trend Up + Pullback + Turn Up
         cond_trend_up = (df['ADX'] > 15) & (df['Close'] > df['SMA50'])
         cond_pullback = (df['RSI'] < 60) & (df['RSI'] > 40) # Healthy pullback zone
-        cond_turn_up = cond_macd_improving | cond_macd_cross
+        cond_turn_up = cond_hist_improving | cond_macd_cross
         
         reentry_mask = cond_trend_up & cond_pullback & cond_turn_up
         
