@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import requests
 from io import StringIO
 import time
@@ -12,75 +13,171 @@ from datetime import datetime
 
 # "Momentum Universe" - High Beta, Liquid, & Thematic Leaders
 SECTOR_DEFINITIONS = {
+# ---------------------------------------------------------
+    # 1-A. AI Compute & Logic (Designers)
+    # AIの「頭脳」を作る設計企業。AIブームの本丸。
     # ---------------------------------------------------------
-    # 1. AI & Semiconductor (Hardware / Cloud)
-    # ---------------------------------------------------------
-    "🖥️ AI: Hardware & Cloud Infra": [
-        "CRWV", "NVDA", "AMD", "SMCI", "VRT", "ANET", "PSTG", "DELL", "HPE", 
-        "TSM", "AVGO", "ARM", "MU", "QCOM", "AMAT", "LRCX", "GFS", "STM", 
-        "UMC", "ASX", "WDC", "ENTG", "AMKR", "ALAB", "NVTS", "SWKS", "KLAR", 
-        "MCHP", "TXN", "ADI", "ON", "Q", "APLD", "FYBR", "LUMN", "VIAV", "CIEN"
+    "🧠 Semi: AI Compute & Logic": [
+        "NVDA", "AMD", "QCOM", "ARM", "INTC", "AVGO", "MRVL", "ALAB","CRDO"
     ],
 
     # ---------------------------------------------------------
-    # 2. AI Software & Services
+    # 1-B. Semi Equipment & Foundry (The Fab)
+    # 半導体を作るための「工場」と「製造装置」。シリコンサイクルに敏感。
     # ---------------------------------------------------------
-    "🧠 AI: Software & SaaS": [
-        "FIG", "PLTR", "MSFT", "GOOGL", "GOOG", "META", "NOW", "DDOG", "SNOW", 
-        "MDB", "PATH", "AI", "BBAI", "SOUN", "ESTC", "CDNS", "SNPS", "ZETA", 
-        "SYM", "DOCN", "APP", "TTD", "TEAM", "HUBS", "GTLB", "CFLT", "NET", 
-        "OKTA", "CRWD", "PANW", "FTNT", "ZS", "ORCL", "SAP", "IBM", "INTU", 
-        "ADBE", "CRM", "WDAY", "DOCU", "ZM", "GEN", "BOX", "DBX", "ASAN", 
-        "VRNS", "CCC", "FRSH", "KVYO", "UPWK", "MGNI", "OPCH", "PRO", "PAYC", 
-        "TYL", "RDDT", "DJT"
+    "🏗️ Semi: Equipment & Foundry": [
+        "TSM", "ASML", "AMAT", "LRCX", "KLAC", "GFS", "UMC", 
+        "ENTG", "AMKR", "ONTO"
     ],
 
     # ---------------------------------------------------------
-    # 3. Crypto & FinTech
+    # 1-C. AI Infra: Server, Memory & Network
+    # AIを支える「足回り」。メモリ、サーバー、光通信。
     # ---------------------------------------------------------
-    "💸 Crypto & FinTech": [
-        "CRCL", "XYZ", "MSTR", "COIN", "MARA", "RIOT", "HOOD", "PYPL", "XYZ", 
-        "SOFI", "AFRM", "UPST", "BILL", "TOST", "FOUR", "PAYX", "ADP", "FIS", 
-        "FISV", "GPN", "FLUT", "DKNG", "RELY", "INTR", "PAGS", "WU", "STNE", 
-        "XP", "NU", "LC", "DLO", "BLSH", "GLXY","CORZ", "IREN", "WULF", 
-        "CIFR", "CLSK", "BTDR",  "HIVE", "BITF", "HUT"
+    "🖥️ AI Infra: Server & Memory": [
+        "SMCI", "DELL", "HPE", "VRT", "ANET", "MU", "WDC", "PSTG", "SNDK",
+        "STX", "NTAP", "CIEN", "LUMN", "GLW", "COHR","CLS","MOD","NVT", "PH"
+    ],
+    
+    # ---------------------------------------------------------
+    # 1-D. Analog & Power Semi
+    # 自動車・産業機器向け。EVや工場の景気に連動。
+    # ---------------------------------------------------------
+    "🔌 Semi: Analog & Power": [
+        "TXN", "ADI", "ON", "NXPI", "STM", "MCHP", "SWKS", "QRVO", "SLAB", "WOLF"
+    ],
+
+# ---------------------------------------------------------
+    # 2-A. AI: Big Tech & Platform (Megacaps)
+    # プラットフォーマー。指数への影響大。
+    # ---------------------------------------------------------
+    "🧠 AI: Big Tech": [
+        "MSFT", "GOOGL", "GOOG", "META", "AMZN", "ADBE", "CRM", "SAP", "ORCL", "IBM", "NOW", "INTU"
     ],
 
     # ---------------------------------------------------------
-    # 4. Space & Defense
+    # 2-B. AI: Cybersecurity (Security is Essential for AI)
+    # 独自の動きをしやすいセクター。
     # ---------------------------------------------------------
-    "🌌 Space & Defense": [
-        "RKLB", "ASTS", "LUNR", "JOBY", "ACHR", "BA", "PL", "SPIR", "SPCE", 
-        "IRDM", "SATS", "ONDS", "RTX", "KTOS", "HWM", "LMT", "GD", "NOC", 
-        "LHX", "AMTM", "AVAV", "AXON", "BWXT"
+    "🛡️ AI: Cybersecurity": [
+        "CRWD", "PANW", "FTNT", "ZS", "OKTA", "NET", "CYBR", "SENT", "GEN", "VRNS", "TENB", "QLYS"
+    ],
+
+    # ---------------------------------------------------------
+    # 2-C. AI: Enterprise SaaS & Data Apps
+    # 高成長・高ボラティリティな中小型株群。
+    # ---------------------------------------------------------
+    "☁️ AI: SaaS & Data Apps": [
+        "PLTR", "SNOW", "DDOG", "MDB", "ESTC", "AI", "SOUN", "BBAI", 
+        "CDNS", "SNPS", "APP", "TTD", "TEAM", "HUBS", "GTLB", "CFLT", 
+        "DOCN", "WDAY", "DOCU", "ZM", "BOX", "DBX", "ASAN", "FRSH", 
+        "KVYO", "UPWK", "RDDT","DUOL"
+    ],
+
+# ---------------------------------------------------------
+    # 3-A. Crypto Miners & Digital Assets
+    # ビットコイン価格と連動率が極めて高い。ハイリスク。
+    # ---------------------------------------------------------
+    "🪙 Crypto: Miners & Assets": [
+        "MSTR", "COIN", "MARA", "RIOT", "CLSK", "CORZ", "IREN", "APLD",
+        "WULF", "CIFR", "BTDR", "HIVE", "BTBT","BITF", "HUT", "GLXY", "BKKT", "BMNR","CRCL","BTCS","FIGR","CAN"
+    ],
+
+    # ---------------------------------------------------------
+    # 3-B. FinTech & Payments
+    # 景気・金利・個人消費に連動。
+    # ---------------------------------------------------------
+    "💳 FinTech & Payments": [
+        "PYPL", "XYZ", "AFRM", "UPST", "BILL", "TOST", "FOUR", 
+        "FIS", "FISV", "GPN", "FLUT", "DKNG", "WU", "STNE", "XP", "NU", 
+        "LC", "DLO", "RELY", "INTR", "PAGS"
+    ],
+
+# ---------------------------------------------------------
+    # 4-A. Aerospace & Defense (Primes)
+    # 政府予算で動く巨大企業。地政学リスクヘッジ＆配当狙い。
+    # ---------------------------------------------------------
+    "🛡️ Defense: Major Contractors": [
+        "RTX", "LMT", "GD", "NOC", "LHX", "BA", "HWM", "GE", 
+        "TXT", "LDOS", "CACI", "SAIC", "HII"
+    ],
+
+    # ---------------------------------------------------------
+    # 4-B. Space Economy & Future Air Mobility
+    # ロケット、衛星、空飛ぶクルマ。ハイリスク・ハイリターン。
+    # ---------------------------------------------------------
+    "🚀 Space & Future Mobility": [
+        "RKLB", "ASTS", "LUNR", "SPCE", "PL", "SPIR", "MNTS", "SIDU","RDW","VOYG",  # 宇宙
+        "JOBY", "ACHR", "EH", "EVTL",                                  # 空飛ぶクルマ(eVTOL)
+        "IRDM", "SATS", "GSAT", "VSAT"                                 # 衛星通信
+    ],
+
+    # ---------------------------------------------------------
+    # 4-C. Drone & Unmanned Systems
+    # 現代戦の要。小型株が多くボラティリティが高い。
+    # ---------------------------------------------------------
+    "🚁 Defense: Drones & Tech": [
+        "AVAV", "KTOS", "AXON", "RCAT", "PDYN", "POWW", "UMAC","ONDS"
     ],
 
     # ---------------------------------------------------------
     # 5. Energy: Nuclear (AI Power Theme)
     # ---------------------------------------------------------
     "☢️ Energy: Nuclear": [
-        "OKLO", "SMR", "UEC", "UUUU", "CCJ", "NXE", "LEU", "DNN", "NNE", "GEV"
+        "OKLO", "SMR", "UEC", "UUUU", "CCJ", "NXE", "LEU", "DNN", "NNE", "GEV","VST", "CEG","BWXT"
+    ],
+
+# ---------------------------------------------------------
+    # 6-A. Utilities: Regulated (Defensive)
+    # 地域独占の電力会社。金利感応度が高く、債券に近い動き。
+    # ---------------------------------------------------------
+    "💡 Utilities: Regulated": [
+        "NEE", "DUK", "SO", "AEP", "SRE", "D", "PEG", "ED", "XEL", 
+        "WEC", "ES", "EIX", "ETR", "FE", "PPL", "CMS", "CNP"
+    ],
+
+
+    # ---------------------------------------------------------
+    # 6-C. Clean Tech: Solar, Hydrogen & Battery
+    # 政策と金利に大きく左右されるグロース株。
+    # ---------------------------------------------------------
+    "☀️ Energy: Solar & Clean Tech": [
+        "FSLR", "ENPH", "SEDG", "RUN", "NXT", "SHLS", "ARRY",  # 太陽光
+        "PLUG", "BE", "FCEL", "BLDP",                          # 水素
+        "FLNC", "STEM", "EOSE", "ENVX", "QS"                   # 電池・貯蔵
+    ],
+
+# ---------------------------------------------------------
+    # 7-A. Oil Majors (Integrated)
+    # 採掘から販売まで垂直統合。財務盤石で高配当。
+    # ---------------------------------------------------------
+    "🛢️ Energy: Integrated Majors": [
+        "XOM", "CVX", "SHEL", "TTE", "BP", "EQNR", "PBR", "EC", "ENB"
     ],
 
     # ---------------------------------------------------------
-    # 6. Energy: Power & Renewables
+    # 7-B. E&P (Exploration & Production)
+    # 掘削専業。原油価格の変動にダイレクトに反応する。
     # ---------------------------------------------------------
-    "⚡ Energy: Power & Renewables": [
-        "VST", "CEG", "NRG", "NEE", "DUK", "SO", "AEP", "EXC", "PEG", "PPL", 
-        "SRE", "CNP", "ED", "EIX", "ETR", "LNT", "NI", "WEC", "WTRG", "CMS", 
-        "ES", "XEL", "PCG", "AES", "FLNC", "BE", "ENPH", "SEDG", "RUN", "NXT", 
-        "EOSE", "STEM"
+    "🏗️ Energy: E&P (Upstream)": [
+        "EOG", "COP", "OXY", "DVN",  "FANG",  "CTRA", 
+        "APA", "AR", "EQT", "RRC"
     ],
 
     # ---------------------------------------------------------
-    # 7. Energy: Oil & Gas
+    # 7-C. Oil Services & Equipment
+    # 油田開発のための技術・機材提供。設備投資サイクルに連動。
     # ---------------------------------------------------------
-    "🛢️ Energy: Oil & Gas": [
-        "PR", "XOM", "CVX", "OXY", "EOG", "SLB", "HAL", "BKR", "COP", "DVN", 
-        "VLO", "MPC", "PSX", "PBR", "PBR-A", "BP", "SU", "EC", "EQNR", "YPF", 
-        "TRP", "KMI", "WMB", "ET", "EPD", "CTRA", "AR", "EQT", "SM", "OKE", 
-        "FTI", "DINO", "PBF", "MUR", "AM", "LBRT", "CNQ", "APA", "SHEL", "VZLA", 
-        "MTDR", "CHYM"
+    "🔧 Energy: Services & Equipment": [
+        "SLB", "HAL", "BKR", "FTI", "NOV", "WHD", "LBRT", "RIG", "VAL"
+    ],
+
+    # ---------------------------------------------------------
+    # 7-D. Midstream (Pipelines)
+    # パイプライン輸送。原油価格より輸送量に依存。高配当MLP。
+    # ---------------------------------------------------------
+    "🛤️ Energy: Midstream": [
+        "ET", "EPD", "KMI", "WMB", "TRP", "OKE", "PAA", "MPLX"
     ],
 
     # ---------------------------------------------------------
@@ -91,34 +188,86 @@ SECTOR_DEFINITIONS = {
         "GILD", "AZN", "SNY", "TEVA"
     ],
 
+# ---------------------------------------------------------
+    # 9-A. Commercial Biotech (Profitable)
+    # すでに大型薬を持ち、黒字で安定しているバイオ。
     # ---------------------------------------------------------
-    # 9. BioPharma (Biotech & Gene)
-    # ---------------------------------------------------------
-    "🧬 BioPharma: Biotech & Gene": [
-        "CRSP", "BEAM", "ARWR", "SRPT", "VRTX", "ALKS", "INCY", "EXEL", "LEGN", 
-        "RPRX", "HALO", "ADMA", "BBIO", "SMMT", "FOLD", "TVTX", "ROIV", "NTLA", 
-         "APQT", "LQDA", "NUVB", "ERAS", "SNDK", "TAK", "INSM", "BMRN", 
-        "BMNR", "AXSM", "VVV", "INDV", "OCUL", "RNA", "ADPT", "KOD", "ARQT", 
-        "CPRX", "VIR", "BNTX"
+    "🧬 Biotech: Commercial Leaders": [
+        "VRTX", "REGN", "BIIB", "AMGN", "GILD", "INCY", "UTHR", "BMRN", "ALNY"
     ],
 
     # ---------------------------------------------------------
-    # 10. MedTech & Health Services
+    # 9-B. Gene Editing & Cell Therapy (Speculative)
+    # ゲノム編集など次世代技術。赤字だがホームラン狙い。
     # ---------------------------------------------------------
-    "🏥 MedTech & Health": [
-        "UNH", "CVS", "ABT", "DHR", "TMO", "SYK", "BSX", "EW", "MDT", "DXCM", 
-        "ZTS", "GEHC", "CNC", "DOCS", "ALHC", "NVST", "BRKR", "OGN", "BAX", 
-        "XRAY", "CAH", "BHC", "SHC", "COO", "HIMS", "WRBY", "NEOG", "OSCR", 
-        "ALGN", "RMD", "HCA", "ELV", "CI", "HUM", "MCK", "COR"
+    "🧪 Biotech: Gene & Cell Therapy": [
+        "CRSP", "NTLA", "BEAM", "EDIT","SRPT", "LEGN", "FATE"
     ],
 
     # ---------------------------------------------------------
-    # 11. Consumer: Food & Beverage
+    # 9-C. Clinical Stage & Small Cap
+    # 臨床試験の結果次第で株価が数倍or半値になる銘柄群。
     # ---------------------------------------------------------
-    "🍔 Consumer: Food & Bev": [
-        "MICC", "KO", "PEP", "MNST", "CELH", "MCD", "SBUX", "CMG", "CAVA", 
-        "HRL", "KHC", "MDLZ", "CPB", "CAG", "GIS", "TAP", "BUD", "STZ", "MO", 
-        "PM", "BTI"
+    "🔬 Biotech: Clinical & Growth": [
+        "AXSM", "KOD", "VKTX", "MDGL", "CYTK", "ARGX", 
+        "RXRX",  "DNA"
+    ],
+
+# ---------------------------------------------------------
+    # 10-A. MedTech & Devices
+    # 手術ロボットや検査機器。金利と病院の設備投資意欲に連動。
+    # ---------------------------------------------------------
+    "🦾 MedTech & Devices": [
+        "ABT", "SYK", "MDT", "BSX", "EW", "DXCM", "GEHC", 
+        "ZTS", "ILMN", "TMO", "DHR", "A", "BRKR", "RMD", "PODD"
+    ],
+
+    # ---------------------------------------------------------
+    # 10-B. Health Services & Insurance (Managed Care)
+    # ディフェンシブだが、米国の医療制度改革（選挙）の影響を受ける。
+    # ---------------------------------------------------------
+    "🏥 Health Services & Insurers": [
+        "UNH", "ELV", "CVS", "CI", "HUM", "CNC", "HCA", "UHS", "MCK", "CAH", "COR"
+    ],
+
+    # ---------------------------------------------------------
+    # 10-C. Digital Health & Health Tech (High Growth)
+    # 遠隔医療、AI医療プラットフォーム、InsurTech。
+    # ---------------------------------------------------------
+    "📱 MedTech: Digital Health & Services": [
+        "HIMS",  # Hims & Hers (遠隔医療・GLP1・サブスク) ★ここがベスト
+        "TDOC",  # Teladoc (遠隔医療の老舗)
+        "DOCS",  # Doximity (医師版LinkedIn・AIツール)
+        "OSCR",  # Oscar Health (AI活用型の医療保険 InsurTech)
+        "ALHC",  # Alignment Healthcare (テック活用型メディケア)
+        "SDGR",  # Schrödinger (創薬AIソフトウェア) ※Bio枠から移動も可
+        "RXRX",  # Recursion (AI創薬) ※Bio枠から移動も可
+        "TXG"    # 10x Genomics (ゲノム解析機器・ソフト)
+    ],
+
+# =========================================================
+    # 11. Consumer Staples (必需品・食品) vs Discretionary (外食)
+    # =========================================================
+
+    # ---------------------------------------------------------
+    # 11-A. Restaurants (Consumer Discretionary)
+    # 景気に敏感。インフレ（人件費・食材費）の影響大。
+    # ---------------------------------------------------------
+    "🍔 Consumer: Restaurants": [
+        "MCD", "SBUX", "CMG", "CAVA", "YUM", "DRI", "DPZ", "WING", "TXRH", "QSR",
+        "WEN", "SHAK", "SG"
+    ],
+
+    # ---------------------------------------------------------
+    # 11-B. Food & Beverage Staples (Consumer Staples)
+    # 不況に強い「生活必需品」。配当狙いの資金が入る。
+    # ---------------------------------------------------------
+    "🥤 Consumer: Food & Bev Staples": [
+        "KO", "PEP", "MNST", "CELH", "KDP",      # 飲料
+        "MDLZ", "HSY", "KHC", "GIS", "CPB",      # 加工食品
+        "HRL", "CAG", "MKC", "SJM", "TSN",       # 食品・調味料
+        "PM", "MO", "BTI",                       # タバコ
+        "COST", "WMT", "TGT", "KR", "DG", "DLTR" # ※スーパー・小売もここに入れると分析しやすい
     ],
 
     # ---------------------------------------------------------
@@ -131,69 +280,204 @@ SECTOR_DEFINITIONS = {
         "VIPS", "CPNG", "VNET", "BILI", "TME"
     ],
 
+
+    # =========================================================
+    # 13. Consumer Discretionary (アパレル vs 旅行・娯楽)
+    # =========================================================
+
     # ---------------------------------------------------------
-    # 13. Consumer: Apparel & Leisure
+    # 13-A. Travel, Leisure & Entertainment (Services)
+    # 「コト消費」。景気回復期に強い。
     # ---------------------------------------------------------
-    "👗 Consumer: Apparel & Leisure": [
-        "NKE", "LULU", "DECK", "ONON", "BIRK", "VFC", "LEVI", "CPRI", "UA", 
-        "UAA", "RCL", "CCL", "NCLH", "VIK", "LVS", "MGM", "CZR", "DIS", "NFLX", 
-        "SPOT", "PINS", "SNAP", "TTWO", "EA", "ROKU", "LYV", "IHRT", "CNK", 
-        "GENI", "SBET", "STUB", "VISN", "RUM"
+    "✈️ Consumer: Travel & Leisure": [
+        "BKNG", "ABNB", "EXPE", "TRIP",          # 予約サイト
+        "RCL", "CCL", "NCLH", "VIK",             # クルーズ
+        "MAR", "HLT", "H", "WH", "HST",          # ホテル
+        "LVS", "MGM", "WYNN", "CZR", "DKNG",     # カジノ・賭け
+        "DIS", "NFLX", "SPOT", "LYV", "WMG",     # エンタメ・音楽
+        "EA", "TTWO", "RBLX"                     # ゲーム（ここに入れるのが一般的）
+    ],
+
+    # ---------------------------------------------------------
+    # 13-B. Apparel, Footwear & Luxury (Goods)
+    # 「モノ消費」。在庫サイクルや中国需要の影響を受ける。
+    # ---------------------------------------------------------
+    "👗 Consumer: Apparel & Luxury": [
+        "NKE", "LULU", "ONON", "DECK",  "CROX", "BIRK", # 靴・スポーツ
+        "RL", "PVH", "VFC", "LEVI",  "ANF", "AEO",      # アパレル
+        "TJX", "ROST", "BURL",                                # ディスカウント衣料
+        "CPRI", "TPR", "LVMUY", "HESAY"                       # 高級ブランド
     ],
 
     # ---------------------------------------------------------
     # 14. Auto & EV
     # ---------------------------------------------------------
     "🚗 Auto & EV": [
-        "TSLA", "RIVN", "LCID", "LI", "XPEV", "NIO", "ZETA", "PSNY", "F", 
+        "TSLA", "RIVN", "LCID", "LI", "XPEV", "NIO",  "PSNY", "F", 
         "GM", "STLA", "TM", "HMC", "CNH", "GNTX", "APTV", "GT", "LKQ", "CVNA", 
-        "KMX", "ALV", "BWA", "QS", "GTX", "HOG", "MBLY", "HSAI"
+        "KMX", "ALV", "BWA", "QS", "GTX", "HOG", "MBLY", "HSAI","OUST"
+    ],
+
+# ---------------------------------------------------------
+    # 15-A. Digital REITs (Data Center & Towers)
+    # 実質的に「AIインフラ株」。
+    # ---------------------------------------------------------
+    "📡 Real Estate: Digital Infra": [
+        "AMT", "CCI", "SBAC", "EQIX", "DLR", "IRM"
     ],
 
     # ---------------------------------------------------------
-    # 15. Real Estate & REITs
+    # 15-B. Traditional REITs (Residential, Retail, Industrial)
+    # 金利感応度が高い。配当狙いの動き。
     # ---------------------------------------------------------
-    "🏘️ Real Estate & REITs": [
-        "MRP", "PLD", "AMT", "CCI", "O", "VICI", "GLPI", "WELL", "VTR", "ARE", 
-        "CUBE", "REXR", "INVH", "AMH", "EQR", "UDR", "IRM", "WY", "Z", "OPEN", 
-        "CSGP", "BEKE", "HR", "APLE", "STWD", "AGNC", "NLY", "RITM", "MPW", 
-        "DBRG", "IRT", "DOC", "COLD", "SBRA", "BRX", "PDI", "COMP", "HST"
+    "🏘️ Real Estate: Traditional": [
+        "PLD", "O", "VICI", "WELL", "SPG", "PSA", "AVB", "EQR", 
+        "INVH", "MAA", "ESS", "CPT", "ARE", "BXP"
+    ],
+
+# ---------------------------------------------------------
+    # 16-A. Mega Banks (G-SIBs)
+    # 「大きすぎて潰せない」巨大銀行。金利と米国経済の体温計。
+    # ---------------------------------------------------------
+    "🏛️ Finance: Mega Banks": [
+        "JPM", "BAC", "WFC", "C", "HSBC", "RY", "TD", "HDB"
     ],
 
     # ---------------------------------------------------------
-    # 16. Finance: Banks & Capital Markets
+    # 16-B. Regional Banks
+    # 金利リスク・商業不動産(CRE)リスクに敏感。KRE ETFの構成銘柄。
     # ---------------------------------------------------------
-    "🏦 Finance: Banks & Capital": [
-        "JPM", "BAC", "WFC", "C", "MS", "GS", "SCHW", "BLK", "AXP", "V", "MA", 
-        "BRK-B", "AIG", "MET", "KKR", "BX", "APO", "ARES", "STT", "BK", "USB", 
-        "PNC", "TFC", "COF", "FITB", "RF", "KEY", "CFG", "HBAN", "CADE", "FNB", 
-        "IBKR", "DB", "UBS", "BCS", "LYG", "ITUB", "MFC", "TD", "AFL", "WRB", 
-        "PGR", "EQH", "GNW", "SEI", "GOF", "ARCC", "OBDC", "BGC", "BANC", "EBC", 
-        "MFG", "SMFG", "MUFG", "JEF", "PRMB", "BPRE", "COLB"
+    "🏦 Finance: Regional Banks": [
+        "USB", "PNC", "TFC",  "FITB", "RF", "KEY", "CFG", "HBAN", 
+        "MTB", "WAL", "CMA", "ZION"
     ],
 
     # ---------------------------------------------------------
-    # 17. Industrials & Transport
+    # 16-C. Capital Markets, Asset Mgmt & PE
+    # 株式市場の活況・M&A・IPOに連動。
     # ---------------------------------------------------------
-    "🏗️ Industrials & Transport": [
-        "TIC", "CAT", "ETN", "EMR", "PWR", "URI", "JCI", "IR", "OTIS", "CARR", 
-        "FIX", "GVA", "MLM", "VMC", "MMM", "GE", "HON", "ITW", "PH", "FAST", 
-        "MAS", "BLDR", "CRH", "ESI", "AL", "CPRT", "RHI", "FTV", "FLR", "NVT", 
-        "GTES", "APG", "TTEK", "FLEX", "CLS", "AXTA", "PCAR", "DAL", "UAL", 
-        "AAL", "LUV", "ALK", "CSX", "UNP", "CP", "FDX", "UPS", "ODFL", "KNX", 
-        "RXO", "ZIM", "FRO", "FLY", "QXO"
+    "📈 Finance: Capital Markets & PE": [
+        "GS", "MS", "BLK", "SCHW", "IBKR", "RJF", "LPLA",  # 証券・運用
+        "BX", "KKR", "APO", "ARES", "CG", "OWL", "TROW",   # PE・資産運用
+        "COIN", "HOOD", "ICE", "NDAQ", "CME",        # 取引所・ブローカー
     ],
 
     # ---------------------------------------------------------
-    # 18. Resources & Materials
+    # 16-D. Credit Cards & Consumer Finance
+    # 消費者金融・決済インフラ。景気と個人消費に連動。
     # ---------------------------------------------------------
-    "⛏️ Resources & Materials": [
-        "FCX", "VALE", "RIO", "BHP", "CLF", "NEM", "GOLD", "AEM", "ALB", "AA", 
-        "SCCO", "MP", "CENX", "CDE", "HL", "AG", "EXK", "TGB", "FSM", "SSRM", 
-        "IAG", "SVM", "PAAS", "TECK", "HBM", "GFI", "AU", "NG", "AGI", "ORLA", 
-        "CC", "OLN", "IFF", "BALL", "IP", "GPK", "SUZ", "CE", "EMN", "HUN", 
-        "MOS", "NTR", "HYMC", "VZLA", "AMCR", "DOW", "LIN", "DD", "LYB", "PHYS", 
-        "PSLV", "IE", "NGD"
+    "💳 Finance: Credit Cards & Consumer": [
+        "V",    # Visa
+        "MA",   # Mastercard
+        "AXP",  # American Express
+        "SYF",  # Synchrony (Amazonカード等の発行元)
+        "COF",  # Capital One (カード融資主体) ★16-Bから移動
+        "CPAY", # Corpay (企業間決済・燃料カード 旧FLT)
+        "WEX",  # WEX Inc (法人決済・ヘルスケア決済)
+        "SLM"   # Sallie Mae (学生ローン・消費者金融)
+    ],
+
+    # ---------------------------------------------------------
+    # 16-E. Insurance (P&C / Life)
+    # 金利上昇はプラスだが、災害リスク等独自の動きをする。
+    # ---------------------------------------------------------
+    "☂️ Finance: Insurance": [
+        "BRK-B", "PGR", "CB", "TRV", "ALL", "AIG", "MET", "PRU", 
+        "AFL", "HIG", "ACGL", "WRB"
+    ],
+
+# ---------------------------------------------------------
+    # 17-A. Industrials: Machinery & Manufacturing
+    # 景気敏感、設備投資需要に連動。
+    # ---------------------------------------------------------
+    "🏭 Industrials: Machinery": [
+        "CAT", "ETN", "EMR", "ITW", "CMI", "PCAR", "MMM", 
+        "GE", "HON", "OTIS", "CARR", "JCI", "XYL", "DOV", "AME"
+    ],
+
+    # ---------------------------------------------------------
+    # 17-B. Transport & Logistics
+    # 原油価格・個人消費・物流需要に連動。
+    # ---------------------------------------------------------
+    "✈️ Transport & Logistics": [
+        "UPS", "FDX", "DAL", "UAL", "AAL", "LUV", "ALK", "CSX", "UNP", 
+        "CP", "CNI", "NSC", "ODFL", "KNX", "JBHT", "XPO", "ZIM", "FRO"
+    ],
+
+# =========================================================
+    # 18. Resources & Materials (物質別分類)
+    # =========================================================
+
+    # ---------------------------------------------------------
+    # 18-A. Precious Metals: Gold & Silver
+    # 【金・銀】
+    # ---------------------------------------------------------
+    "🥇 Resources: Gold & Silver": [
+        # Major (大手)
+        "NEM", "GOLD", "AEM", "KGC", "AU", "GFI", "IAG", "NG", "EQX", 
+        # Silver (銀)
+        "PAAS", "HL", "AG", "CDE", "EXK",  "SVM", "FSM", "SSRM", "VZLA", 
+        # Junior / Exploration (小型・探鉱)
+        "HYMC",  # Hycroft (金・銀)
+        "NGD",   # New Gold (金・銅)
+        "IDR",   # Idaho Strategic (金が主産物 ※レアアースも保有)
+        "USAS",  # Americas Gold and Silver
+        "PHYS", "PSLV", "GLD", "SLV", "GDX", "GDXJ" # ETF
+    ],
+
+# ---------------------------------------------------------
+    # 18-B. Industrial Metals: Copper, Iron, Aluminum
+    # 【銅・鉄・アルミ】への追加
+    # ---------------------------------------------------------
+    "🏗️ Resources: Base Metals (Cu, Fe, Al)": [
+        "BHP", "RIO", "VALE", 
+        "FCX", "SCCO", "TECK", "HBM", "ERO", "TGB", 
+        "IE",  # Ivanhoe Electric (米国の銅探査・ハイテク探査) ★追加
+        "CLF", "STLD", "NUE", "SID", 
+        "AA", "CENX", "ACH"
+    ],
+
+    # ---------------------------------------------------------
+    # 18-C. Battery Minerals: Lithium, Nickel, Graphite
+    # 【電池材料】リチウムに加え、黒鉛(Graphite)を追加
+    # ---------------------------------------------------------
+    "🔋 Resources: Battery & EV Materials": [
+        "ALB", "SQM",  "LAC", "SGML", 
+        "NMG",  # Nouveau Monde Graphite (北米の黒鉛) ★追加
+        "WWR",  # Westwater Resources (米国の黒鉛) ★追加
+        "CRML", "CC"
+    ],
+
+
+    # ---------------------------------------------------------
+    # 18-D. Specialty Metals & Rare Earths
+    # 【レアアース・特殊金属】アンチモン、チタン、ウラン複合など
+    # ---------------------------------------------------------
+    "🧲 Resources: Rare Earths & Specialty": [
+        "MP", "UAMY", "TMQ", "EU", "USAR","CRML","TMC"
+    ],
+
+    # ---------------------------------------------------------
+    # 18-E. Chemicals, Ag & Packaging
+    # 【化学・農業・包装】
+    # ---------------------------------------------------------
+    "⚗️ Resources: Chemicals & Materials": [
+        "LIN", "APD", "SHW", "DD", "DOW", "LYB", "EMN", "CE", "OLN", 
+        "MOS", "NTR", "CF", "FMC", "ICL", 
+        "BALL", "IP", "GPK"
+    ],
+
+        # ---------------------------------------------------------
+    # [新設] 18-F. PGM & Streaming (Platinum/Royalty)
+    # 【プラチナ・ロイヤルティ】インフレヘッジと水素・ハイブリッド車需要
+    # ---------------------------------------------------------
+    "💍 Resources: PGM & Royalty": [
+        "SBSW", # Sibanye Stillwater (プラチナ・パラジウム・金)
+        "PLG",  # Platinum Group Metals (PGM開発)
+        "WPM",  # Wheaton Precious Metals (ストリーミングの王様)
+        "FNV",  # Franco-Nevada (金・エネルギーロイヤルティ)
+        "RGLD", # Royal Gold (金・銅ロイヤルティ)
+        "TFPM", # Triple Flag (中堅ストリーミング)
     ],
 
     # ---------------------------------------------------------
@@ -215,7 +499,35 @@ SECTOR_DEFINITIONS = {
     # 22. Engineering & Construction
     # ---------------------------------------------------------
     "🏗️ Engineering & Construction": [
-        "AGX"
+        "AGX","PWR","EME","FLR","J","ACM","FIX","MTZ","KBR","GVA","STRL","PRIM","TTEK"
+    ],
+
+    # ---------------------------------------------------------
+    # 23. Robotics & Automation
+    # AIの「身体」と「実行力」。人手不足解消・生産性向上の本命。
+    # ---------------------------------------------------------
+    "🤖 Robotics & Automation": [
+        # --- Software Automation (RPA & AI) ---
+        "PATH",  # UiPath (PC作業の自動化ロボット) ★SaaSから移動
+        "SYM",   # Symbotic (倉庫のAI完全自動化)
+
+        # --- Industrial Robotics (Hardware & Control) ---
+        "TER",   # Teradyne (協働ロボット世界首位) ★Semiから移動
+        "ROK",   # Rockwell Automation (工場自動化システム) ★Industrialsから移動
+        
+        # --- Service & Delivery Robots ---
+        "SERV",  # Serve Robotics (ラストワンマイル配送)
+        
+        # --- Vision & Sensing (The Eyes) ---
+        "CGNX",  # Cognex (マシンビジョン)
+        "ZBRA",  # Zebra Tech (産業用スキャナ・管理)
+        "MBLY",  # Mobileye (自律走行ビジョン)
+        
+        # --- Medical & Ag Robots ---
+        "ISRG",  # Intuitive Surgical (ダ・ヴィンチ) ★MedTechから移動
+        "PRCT",  # PROCEPT BioRobotics (手術ロボ)
+        "DE",     # John Deere (自動運転トラクター) ★Industrialsから移動
+        "CLPT"
     ]
 }
 
@@ -288,7 +600,8 @@ def get_momentum_candidates(mode="hybrid"):
     sources = [
         "https://finance.yahoo.com/markets/stocks/gainers/",
         "https://finance.yahoo.com/markets/stocks/most-active/",
-        "https://finance.yahoo.com/markets/stocks/52-week-gainers/"
+        "https://finance.yahoo.com/markets/stocks/52-week-gainers/",
+        "https://finance.yahoo.com/markets/stocks/52-week-losers/" # Added for Reversal Hunting
     ]
     
     headers = {
@@ -319,15 +632,15 @@ def get_momentum_candidates(mode="hybrid"):
             # print(f"Source fetch failed {url}: {e}")
             return None
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor: # Increased workers
         futures = {executor.submit(fetch_source, url): url for url in sources}
         for future in concurrent.futures.as_completed(futures):
             df = future.result()
             if df is not None:
                  # Yahoo usually has 'Symbol' and 'Name'
                 if 'Symbol' in df.columns:
-                    # Take top 15
-                    top_df = df.head(15)
+                    # Take top 50 (was 15) to catch early/smaller moves
+                    top_df = df.head(50)
                     for _, row in top_df.iterrows():
                         sym = str(row['Symbol']).split()[0]
                         all_candidates.add(sym)
@@ -1670,3 +1983,666 @@ def get_ai_stock_picks(df_metrics, etf_metrics=None, news_checker=None, top_n=3,
             })
     
     return results
+
+def get_todays_signals(history_dict):
+    """
+    Scan all cached history to find signals generated on the *latest* available date.
+    Performs on-the-fly signal calculation since cached data is raw.
+    """
+    signals = {
+        'Buy_Breakout': [], # Pattern A
+        'Buy_Reversal': [], # Pattern B
+        'Sell': []
+    }
+    
+    if not history_dict:
+        return signals
+        
+    for ticker, df_raw in history_dict.items():
+        if df_raw is None or df_raw.empty or len(df_raw) < 55:
+            continue
+            
+        try:
+            # COPY df to avoid modifying cache
+            df = df_raw.copy()
+            
+            # --- 1. Fast Indicator Calculation ---
+            # SMA
+            df['SMA50'] = df['Close'].rolling(50).mean()
+            
+            # RSI (14)
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            df['RSI'] = 100 - (100 / (1 + rs))
+            
+            # ADX (14)
+            high = df['High']
+            low = df['Low']
+            close = df['Close']
+            
+            tr1 = high - low
+            tr2 = (high - close.shift(1)).abs()
+            tr3 = (low - close.shift(1)).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.ewm(alpha=1/14, adjust=False).mean()
+            
+            up = high - high.shift(1)
+            down = low.shift(1) - low
+            pos_dm = np.where((up > down) & (up > 0), up, 0)
+            neg_dm = np.where((down > up) & (down > 0), down, 0)
+            
+            pos_dm_s = pd.Series(pos_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean()
+            neg_dm_s = pd.Series(neg_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean()
+            
+            dx = ( (pos_dm_s - neg_dm_s).abs() / (pos_dm_s + neg_dm_s) ) * 100
+            df['ADX'] = dx.ewm(alpha=1/14, adjust=False).mean()
+            
+            # MACD
+            ema12 = close.ewm(span=12, adjust=False).mean()
+            ema26 = close.ewm(span=26, adjust=False).mean()
+            macd = ema12 - ema26
+            signal = macd.ewm(span=9, adjust=False).mean()
+            df['MACD'] = macd
+            df['MACD_Signal'] = signal
+            
+            # Chandelier Exit
+            atr = tr.rolling(14).mean() # Simple rolling ATR for speed
+            highest_22 = high.rolling(22).max()
+            df['Chandelier_Exit'] = highest_22 - (atr * 5.0)
+
+            # RVOL
+            df['AvgVol20'] = df['Volume'].rolling(20).mean()
+            df['RVOL'] = df['Volume'] / df['AvgVol20']
+
+            # --- 2. Check Latest Signal ---
+            i = -1 # Today
+            row = df.iloc[i]
+            prev = df.iloc[i-1]
+            prev2 = df.iloc[i-2] # Need for "Yesterday Cross" check
+            
+            # Common Indicators
+            cond_trend_up = (row['Close'] > row['SMA50'])
+            cond_breakout = (row['Close'] > prev['High'])
+            cond_vol = (row['RVOL'] > 1.2) # Base volume requirement
+            cond_adx = (row['ADX'] > 20) # Slightly relaxed from 25
+            
+            # MACD Status
+            macd_now = row['MACD']
+            sig_now = row['MACD_Signal']
+            macd_prev = prev['MACD']
+            sig_prev = prev['MACD_Signal']
+            macd_prev2 = prev2['MACD']
+            sig_prev2 = prev2['MACD_Signal']
+            
+            # GC Today: Now > Sig AND Prev <= Sig
+            is_gc_today = (macd_now > sig_now) and (macd_prev <= sig_prev)
+            
+            # GC Yesterday: Prev > Sig AND Prev2 <= Sig2
+            is_gc_yesterday = (macd_prev > sig_prev) and (macd_prev2 <= sig_prev2)
+            
+            is_underwater = (macd_now < 0) and (sig_now < 0)
+            
+            # --- Pattern A: Momentum Breakout (Trend Following) ---
+            # Existing logic: High Trend, Breakout, Vol
+            if cond_trend_up and cond_breakout and (row['RVOL'] > 1.3) and (macd_now > sig_now) and cond_adx:
+                 # Ensure it's not a stale signal (require breakout OR fresh cross)
+                 if (prev['Close'] <= prev['High']) or is_gc_today:
+                    signals['Buy_Breakout'].append({
+                        'Ticker': ticker,
+                        'Price': row['Close'],
+                        'RVOL': row['RVOL'],
+                        'Reason': f"RVOL {row['RVOL']:.1f}x"
+                    })
+
+            # --- Pattern B: MACD Reversal (Bottom Fishing) ---
+            # User Preference: DIF & DEA < 0, Golden Cross (Today OR Yesterday)
+            elif (is_gc_today or is_gc_yesterday) and is_underwater and cond_vol:
+                 # Distinguish reason
+                 timing = "Today" if is_gc_today else "Yesterday"
+                 signals['Buy_Reversal'].append({
+                    'Ticker': ticker,
+                    'Price': row['Close'],
+                    'RVOL': row['RVOL'],
+                    'Reason': f"Zero Line Cross ({timing})"
+                 })
+            
+            # --- Pattern C: Technical Rebound (Bear Market Rally / First Pop) ---
+            # For stocks like CORT: Bear Trend (+14% Up), MACD Deep underwater (no cross yet).
+            # Relaxed Logic: (Bear Context: SMA50 Down OR Underwater) AND Price > 3% AND RVOL > 1.0
+            # User Feedback: "CORT should be in." -> Relaxed RVOL and context.
+            # Update: Removed 'Green Candle' check. CORT gapped up +14% but was red intraday. Still a reversal.
+            is_bear_context = (row['Close'] < row['SMA50']) or is_underwater
+            if is_bear_context and (row.get('1d', 0) > 3.0) and (row['RVOL'] > 1.0):
+                 signals['Buy_Reversal'].append({
+                    'Ticker': ticker,
+                    'Price': row['Close'],
+                    'RVOL': row['RVOL'],
+                    'Reason': f"Rebound (Vol {row['RVOL']:.1f}x)"
+                 })
+            
+            # Sell: Stop Loss (Chandelier)
+            if row['Close'] < row['Chandelier_Exit']:
+                 if prev['Close'] >= prev['Chandelier_Exit']: # Crossed today
+                    signals['Sell'].append({
+                        'Ticker': ticker,
+                        'Price': row['Close'],
+                        'Reason': "Stop Loss"
+                    })
+
+
+        except Exception as e:
+            continue
+            
+    return signals
+
+# === Momentum Analyzer Logic (New) ===
+
+def analyze_stock_history(ticker, period="1y"):
+    """
+    Fetch history and calculate detailed signals for a specific ticker.
+    Used for on-demand "Deep Dive" analysis.
+    
+    Args:
+        ticker (str): Ticker symbol.
+        period (str): Data period to fetch (default "1y").
+        
+    Returns:
+        tuple: (DataFrame with signals, dict summary_status)
+    """
+    try:
+        # Fetch history with retry logic
+        max_retries = 3
+        df = pd.DataFrame()
+        
+        for attempt in range(max_retries):
+            try:
+                # Method 1: Ticker.history (Standard)
+                ticker_obj = yf.Ticker(ticker)
+                df = ticker_obj.history(period=period)
+                
+                if df.empty:
+                    # Method 2: yf.download (Fallback)
+                    # sometimes download works when history doesn't
+                    time.sleep(1)
+                    df = yf.download(ticker, period=period, progress=False)
+                
+                if not df.empty:
+                    break
+                else:
+                    time.sleep(2 * (attempt + 1)) # Exponential backoff
+            except Exception as e:
+                # print(f"Retry {attempt} failed: {e}") # Debug
+                time.sleep(2 * (attempt + 1))
+        
+        if df.empty:
+             # Fallback: Try 'max' if '1y' failed? Or maybe ticker is wrong.
+             # Return error with detail.
+            return None, {"error": f"No data found for {ticker} (Network/API Error). Try again later."}
+            
+        # Ensure single level columns (Fix for MultiIndex error)
+        if isinstance(df.columns, pd.MultiIndex):
+            # If standard yf structure (Price, Ticker), drop ticker level
+            try:
+                df.columns = df.columns.droplevel(1)
+            except:
+                pass
+        
+        # Double check: if 'Close' is still a DataFrame (duplicate columns?), resolve it.
+        if 'Close' in df.columns and isinstance(df['Close'], pd.DataFrame):
+             # This happens if droplevel failed or we have duplicate columns
+             df = df.T.groupby(level=0).first().T
+
+        
+        # Calculate Indicators
+        # SMA
+        df['SMA20'] = df['Close'].rolling(window=20).mean()
+        df['SMA50'] = df['Close'].rolling(window=50).mean()
+        df['SMA150'] = df['Close'].rolling(window=150).mean()
+        df['SMA200'] = df['Close'].rolling(window=200).mean()
+        
+        # Bollinger Bands (20, 2)
+        sma20 = df['SMA20']
+        std20 = df['Close'].rolling(window=20).std()
+        df['BB_Upper'] = sma20 + (std20 * 2)
+        df['BB_Lower'] = sma20 - (std20 * 2)
+        # Handle division by zero or NaN
+        df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / sma20
+        
+        # RSI (14)
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+        
+        # RVOL (20-day average volume)
+        df['AvgVol20'] = df['Volume'].rolling(window=20).mean()
+        df['RVOL'] = df['Volume'] / df['AvgVol20']
+        
+        # 50-day High/Low
+        df['High50'] = df['High'].rolling(window=50).max()
+        df['Low50'] = df['Low'].rolling(window=50).min()
+
+        # === Advanced Indicators (v2) ===
+        # 1. MACD (12, 26, 9)
+        ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+        df['MACD'] = ema12 - ema26
+        df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+        df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+        
+        # 2. ATR (14) - For Volatility & Stop Loss
+        high_low = df['High'] - df['Low']
+        high_close = (df['High'] - df['Close'].shift(1)).abs()
+        low_close = (df['Low'] - df['Close'].shift(1)).abs()
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        df['ATR'] = tr.rolling(window=14).mean()
+        
+        # 3. Chandelier Exit (Long) - Stop Loss Line (Widened for Momentum Swing)
+        # Standard is 3.0, but user reported "Stop Loss Poor" in chop.
+        # Widen to 5.0 to allow for volatility in momentum stocks.
+        rolling_high_22 = df['High'].rolling(window=22).max()
+        df['Chandelier_Exit'] = rolling_high_22 - (df['ATR'] * 5.0)
+        
+        # 4. MFI (14) - Money Flow Index
+        typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+        money_flow = typical_price * df['Volume']
+        
+        # Positive/Negative Flow using comparison with previous typical price, not diff of itself for vectorized
+        up_flow = money_flow.where(typical_price > typical_price.shift(1), 0)
+        down_flow = money_flow.where(typical_price < typical_price.shift(1), 0)
+        
+        mfi_period = 14
+        up_sum = up_flow.rolling(window=mfi_period).sum()
+        down_sum = down_flow.rolling(window=mfi_period).sum()
+        
+        mfi_ratio = up_sum / down_sum
+        df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+        
+        # 5. BB Expansion (Squeeze Release)
+        df['BB_Expanding'] = df['BB_Width'] > df['BB_Width'].shift(1)
+
+        # 6. ADX (Average Directional Index) - Trend Strength Filter
+        # Measures if trend is strong (ADX > 25) or ranging (ADX < 20).
+        # Calculation:
+        # +DM = High - PrevHigh (if > 0 and > |Low - PrevLow|)
+        # -DM = PrevLow - Low (if > 0 and > |High - PrevHigh|)
+        # TR is already calc'd.
+        
+        up_move = df['High'] - df['High'].shift(1)
+        down_move = df['Low'].shift(1) - df['Low']
+        
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+        
+        # Smooth TR, +DM, -DM (EMA-like smoothing usually, or Rolling sum for simplified ADX)
+        # Standard ADX uses Wilder's Smoothing. Let's use EWM with span=14 (approx).
+        # Or simple rolling for robustness in pandas (Wilder's is slightly different).
+        # Let's use EWM com=13 (span=27 roughly matches Wilder's 1/14).
+        
+        tr_smooth = pd.Series(tr).ewm(alpha=1/14, adjust=False).mean()
+        plus_di = 100 * (pd.Series(plus_dm).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+        minus_di = 100 * (pd.Series(minus_dm).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+        
+        dx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di))
+        df['ADX'] = dx.ewm(alpha=1/14, adjust=False).mean()
+        
+        # === Signal Detection (v3: Ultra-Relaxed for Candidate Discovery) ===
+        df['Signal'] = None 
+        df['Reason'] = ''
+        
+        # Helper: Event happened in last N days
+        def happened_recently(series_bool, window=3):
+            # Check if any True in rolling window (but we just have the column, need to roll it)
+            # Efficient way for single row logic: Just check current.
+            # But for scanners, we might want "Signal triggered yesterday".
+            # For now, let's stick to "Current Condition" to avoid "Old News", but relax the precision.
+            return series_bool
+            
+        # --- BUY Condition (Breakout) ---
+        # 1. Trend: Above SMA50 OR Above SMA20 (Short term momentum)
+        cond_trend = (df['Close'] > df['SMA50']) | (df['Close'] > df['SMA20'])
+        
+        # 2. Breakout Trigger
+        # Close > Upper Band OR Close near 50d High (>98%)
+        cond_bb_break = (df['Close'] > df['BB_Upper'])
+        cond_near_high = (df['Close'] >= df['High50'] * 0.98) 
+        cond_breakout = cond_bb_break | cond_near_high
+        
+        # 3. Volume (Relaxed)
+        # 1.1x volume is enough if price action is strong
+        cond_vol = (df['RVOL'] > 1.1)
+        
+        # 4. Momentum (MACD Positive or Rising)
+        cond_macd = (df['MACD'] > df['MACD_Signal']) | (df['MACD'] > 0)
+        
+        # 5. RSI Safety (Not > 80)
+        cond_safe_rsi = (df['RSI'] < 80)
+        
+        buy_mask = cond_trend & cond_breakout & cond_vol & cond_macd & cond_safe_rsi
+        
+        # --- REOVERSAL BUY Condition (Bottom Fish) ---
+        # Strategy: Catch the Turn.
+        
+        # 1. Oversold Context (RSI < 55)
+        cond_rsi_low = (df['RSI'] < 55)
+        
+        # 2. Golden Cross (MACD Cross UP) - Check Last 2 Days
+        # Today Cross OR Yesterday Cross (so we don't miss it by a few hours)
+        cross_today = (df['MACD'] > df['MACD_Signal']) & (df['MACD'].shift(1) <= df['MACD_Signal'].shift(1))
+        cross_yesterday = (df['MACD'].shift(1) > df['MACD_Signal'].shift(1)) & (df['MACD'].shift(2) <= df['MACD_Signal'].shift(2))
+        cond_macd_cross = cross_today | cross_yesterday
+        
+        # 3. Early Turn (Histogram Improving while Negative) - "Approaching Cross"
+        # Captures the V-bounce before the actual cross
+        cond_hist_improving = (df['MACD_Hist'] > df['MACD_Hist'].shift(1)) & (df['MACD_Hist'].shift(1) > df['MACD_Hist'].shift(2))
+        cond_early_turn = cond_rsi_low & cond_hist_improving & (df['MACD_Hist'] < 0)
+        
+        # 4. Big Candle (Panic Reversal)
+        cond_big_candle = (df['Close'] > df['Open'] * 1.03)
+        
+        # Logic A: Classic Golden Cross (Recent)
+        cond_reversal_classic = cond_rsi_low & cond_macd_cross
+        
+        # Logic B: Early Turn (Aggressive)
+        cond_reversal_early = cond_early_turn & (df['RVOL'] > 1.0) # Require slight vol for early turn
+        
+        # Logic C: Big Bounce
+        cond_reversal_bounce = cond_big_candle & (df['RVOL'] > 1.2)
+        
+        reversal_mask = cond_reversal_classic | cond_reversal_early | cond_reversal_bounce
+        
+        # --- RE-ENTRY BUY Condition (Dip Buy) ---
+        # Trend Up + Pullback + Turn Up
+        cond_trend_up = (df['ADX'] > 15) & (df['Close'] > df['SMA50'])
+        cond_pullback = (df['RSI'] < 60) & (df['RSI'] > 40) # Healthy pullback zone
+        cond_turn_up = cond_macd_improving | cond_macd_cross
+        
+        reentry_mask = cond_trend_up & cond_pullback & cond_turn_up
+        
+        # --- SELL Condition ---
+        # TRIGGER:
+        # 1. RSI Extreme: Crosses ABOVE 90 (Climax)
+        # 2. MACD Dead Cross: ONLY if we were recently overheated.
+        #    If we just wobbled around RSS 50, a MACD cross is noise. 
+        #    Rule: Max RSI of last 10 days must be > 70 for a MACD Profit Take to be valid.
+        
+        rsi_was_high = (df['RSI'].rolling(10).max() > 70)
+        
+        # RSI Climax (> 90)
+        rsi_climax_90 = (df['RSI'] > 90) & (df['RSI'].shift(1) <= 90)
+        
+        # MACD Dead Cross (Strict: Only if RSI < 60 AND we were recently high)
+        # BUG FIX: If MACD crosses while RSI > 60, we ignore it (good).
+        # But if price continues to drop, RSI falls below 60, and MACD is STILL dead... we missed the exit!
+        # ADDITION: Trigger if "MACD is Dead" AND "RSI crosses below 60".
+        
+        macd_is_dead = (df['MACD'] < df['MACD_Signal'])
+        rsi_cross_down_60 = (df['RSI'] < 60) & (df['RSI'].shift(1) >= 60)
+        
+        # 2a. Standard DC with RSI < 60 (Define it here as we deleted the previous definition)
+        cond_dc_immediate = (df['MACD'] < df['MACD_Signal']) & (df['MACD'].shift(1) >= df['MACD_Signal'].shift(1)) & (df['RSI'] < 60) & rsi_was_high
+        
+        # 2b. Delayed DC (RSI confirmation)
+        cond_dc_delayed = macd_is_dead & rsi_cross_down_60 & rsi_was_high
+        
+        sell_profit_mask = rsi_climax_90 | cond_dc_immediate | cond_dc_delayed
+        
+        # --- SELL Condition (Stop Loss / Trend End) ---
+        # TRIGGER:
+        # 1. Close Crosses Below Chandelier Exit (Robust)
+        # 2. REMOVED: SMA50 Break. (Caused too many whipsaws in flat markets. Chandelier @ ATRx5 is safer.)
+        
+        chandelier_break = (df['Close'] < df['Chandelier_Exit']) & (df['Close'].shift(1) >= df['Chandelier_Exit'].shift(1))
+        # sma50_break = (df['Close'] < df['SMA50']) & (df['Close'].shift(1) >= df['SMA50'].shift(1))
+        
+        sell_stop_mask = chandelier_break 
+        
+        # Combine all Buy triggers
+        # Priority logic inside iter loop or pre-merge?
+        # Let's merge basic buys.
+        
+        # We need to iterate to apply "Cool Down" (No multiple buys in 15 days)
+        # This prevents "Cluster Buying".
+        
+        # 1. Initialize Signal Series
+        df['Signal'] = None
+        df['Reason'] = ''
+        
+        # Convert masks to boolean series for easier access
+        s_buy = buy_mask
+        s_reversal = reversal_mask
+        s_reentry = reentry_mask
+        
+        s_sell_profit = sell_profit_mask
+        s_sell_stop = sell_stop_mask
+        
+        cooldown_days = 0 
+        cooldown_sell_days = 0 # Added Sell Cooldown
+        trend_buy_count = 0 # Count number of buys in current trend (Max 3)
+        
+        # 2. Iterative Application
+        # We start from index 0. 
+        # Note: Iterating pandas is slow? For 1 ticker (max 3000 rows) it is sub-second. safe.
+        
+        for i in range(len(df)):
+            # Decrease cooldowns
+            if cooldown_days > 0:
+                cooldown_days -= 1
+            if cooldown_sell_days > 0:
+                cooldown_sell_days -= 1
+                
+            # Check Trend Status for Reset (If Trend Logic Breaks, Reset Count)
+            # REVERT: Don't silent reset on SMA50 break. Rely on Chandelier Stop.
+            # If we dip below SMA50 but hold Chandelier, we are still IN.
+            # current_close = df['Close'].iloc[i]
+            # current_sma50 = df['SMA50'].iloc[i]
+            # if current_close < current_sma50:
+            #      trend_buy_count = 0
+            
+            # Check Sell First (Priority: Stop > Profit)
+            # Sell always overrides Buy? Yes.
+            
+            # STOP LOSS (Must trigger regardless of cooldown usually, but if we just sold, maybe ignore?
+            # Actually Stop Loss is distinct. If we hit stop, we hit stop.
+            # But let's apply cooldown to avoid noise if it flickers.
+            is_sell = False
+            reason_sell = ''
+            
+            if s_sell_stop.iloc[i] and cooldown_sell_days == 0:
+                is_sell = True
+                reason_sell = '損切り/撤退 (サポートライン割れ)'
+                
+            elif s_sell_profit.iloc[i] and cooldown_sell_days == 0:
+                is_sell = True
+                reason_sell = '利確推奨 (RSI90超/トレンド転換)'
+                
+            if is_sell:
+                # STRICT RULE: Only Sell if we actually "Bought" (Count > 0)
+                # This prevents "Phantom Sells" when we are already flat.
+                if trend_buy_count > 0:
+                    df.at[df.index[i], 'Signal'] = 'Sell'
+                    df.at[df.index[i], 'Reason'] = reason_sell
+                    cooldown_days = 0 
+                    cooldown_sell_days = 5 # Prevent repetitive sells
+                    trend_buy_count = 0 # Reset buy count on Sell (Full Exit)
+                
+                # If trend_buy_count == 0, we ignore the Sell (we are flat).
+                continue
+                
+            # BUY LOGIC (Only if cooldown is 0 AND Buy Count < 3)
+            if cooldown_days == 0 and trend_buy_count < 3:
+                is_buy = False
+                reason_buy = ''
+                
+                # Check Triggers (Priority: Buy > Reversal > Reentry)
+                if s_buy.iloc[i]:
+                    is_buy = True
+                    reason_buy = 'モメンタム始動 (ブレイク+出来高+MACD)'
+                elif s_reversal.iloc[i]:
+                    is_buy = True
+                    reason_buy = 'トレンド転換 (大陽線/MACD好転)'
+                elif s_reentry.iloc[i]:
+                    is_buy = True
+                    reason_buy = '再エントリー (押し目完了/MACD好転)'
+                    
+                if is_buy:
+                    # Also check if we recently sold? (wash sale / noise)
+                    # If is_buy is True, and we passed checks.
+                    
+                    df.at[df.index[i], 'Signal'] = 'Buy'
+                    df.at[df.index[i], 'Reason'] = reason_buy
+                    cooldown_days = 5 # Wait 5 days (1 week) to prevent immediate cluster buys
+                    trend_buy_count += 1 # Increment buy count
+                    
+        # Done.
+        # Note: This replaces the vectorized assignments above.
+
+
+        # === Current Status Determination ===
+        latest = df.iloc[-1]
+        summary = {
+            'price': latest['Close'],
+            'rsi': latest['RSI'],
+            'rvol': latest['RVOL'],
+            'bb_width': latest['BB_Width'],
+            'sma50': latest['SMA50'],
+            'macd': latest['MACD'],
+            'chandelier': latest['Chandelier_Exit'],
+            'mfi': latest['MFI'],
+            'status': 'WAIT', 
+            'action': 'シグナルなし',
+            'last_signal_date': None
+        }
+        
+        # Check last signal logic... same as before roughly
+        last_signals = df.iloc[-20:]
+        last_buy = last_signals[last_signals['Signal'] == 'Buy'].last_valid_index()
+        last_sell = last_signals[last_signals['Signal'] == 'Sell'].last_valid_index()
+        
+        if latest['Signal'] == 'Buy':
+            summary['status'] = 'BUY'
+            summary['action'] = '★エントリー推奨: 強いエネルギー放出を確認。'
+        elif latest['Signal'] == 'Sell':
+            summary['status'] = 'SELL'
+            if '利確' in latest['Reason']:
+                summary['action'] = '★利益確定推奨: クライマックス(RSI>90)、またはMACD反転。'
+            else:
+                summary['action'] = '★撤退推奨: 重要なサポートラインを割り込みました。'
+        elif latest['Close'] > latest['Chandelier_Exit'] and latest['Close'] > latest['SMA50']:
+             summary['status'] = 'HOLD'
+             
+             # Check Trend Strength
+             is_macd_bull = latest['MACD'] > latest['MACD_Signal']
+             is_rsi_hot = latest['RSI'] > 80
+             
+             if is_rsi_hot:
+                 summary['action'] = f"【最強モメンタム】RSI{latest['RSI']:.0f}。90を超えるクライマックスまで利益を伸ばしましょう。"
+             elif is_macd_bull:
+                 summary['action'] = f"上昇トレンド順調。逆指値: ${latest['Chandelier_Exit']:.2f} (Chandelier) にセットして静観推奨。"
+             else:
+                 summary['action'] = f"トレンド継続中ですが調整の兆し。逆指値: ${latest['Chandelier_Exit']:.2f} を厳守。"
+                 
+        else:
+             summary['status'] = 'WAIT'
+             summary['action'] = "トレンド不明確、または調整中。次のチャンスを待ちます。"
+
+        # Calculate Simple Momentum Score for Input Ticker (approximate)
+        # Using Short Term Score Logic Proxy: RVOL, RSI, Price vs SMA
+        input_score = 0
+        if latest['RVOL'] > 2.0: input_score += 30
+        elif latest['RVOL'] > 1.5: input_score += 20
+        elif latest['RVOL'] > 1.0: input_score += 10
+
+        
+        if latest['Close'] > latest['SMA50']: input_score += 20
+        if latest['Close'] > latest['SMA150']: input_score += 10
+        
+        # RSI Sweet spot 50-70
+        if 50 <= latest['RSI'] <= 70: input_score += 20
+        elif 70 < latest['RSI'] <= 85: input_score += 10
+        
+        # Squeeze bonus
+        if latest['BB_Width'] < 0.15: input_score += 10
+        
+        summary['score'] = input_score
+                
+        return df, summary
+        
+    except Exception as e:
+        return None, {"error": str(e)}
+
+def find_better_alternatives(current_ticker, df_metrics, top_n=3):
+    """
+    Find better momentum stocks in the same sector.
+    Prioritizes stocks with valid BUY signals or strong uptrends.
+    """
+    if df_metrics is None or df_metrics.empty:
+        return []
+        
+    # Get sector of current ticker
+    current_sector = TICKER_TO_SECTOR.get(current_ticker.upper())
+    
+    if not current_sector:
+        return []
+
+    candidates = []
+    for _, row in df_metrics.iterrows():
+        t = row['Ticker']
+        if t == current_ticker: continue
+        
+        s = TICKER_TO_SECTOR.get(t, 'Unknown')
+        if s == current_sector:
+            # === Filter for "Buy-worthy" conditions ===
+            # We want alternatives that are actually GOOD to buy now.
+            
+            # 1. Must be in uptrend
+            price = row.get('Price', 0)
+            if price <= 0: continue
+            
+            # Simple Uptrend Check (if we don't have SMA in metrics, use score)
+            # Assuming 'ShortScore' or 'MidScore' is high enough
+            
+            # Using ShortScore/MidScore from get_ai_stock_picks logic if available?
+            # df_metrics passed here is usually the raw metrics + scores.
+            
+            # Let's calculate a fresh score based on "Buy Signal" proximity
+            buy_power = 0
+            
+            # Trend
+            # Use 1mo and 3mo return as trend proxy
+            ret_1mo = row.get('1mo', 0)
+            ret_3mo = row.get('3mo', 0)
+            if ret_1mo > 0 and ret_3mo > 0: buy_power += 20
+            
+            # Volume
+            rvol = row.get('RVOL', 0)
+            if rvol > 1.5: buy_power += 30 # High demand
+            
+            # RSI (Not too hot)
+            rsi = row.get('RSI', 50)
+            if 50 <= rsi <= 75: buy_power += 30 # Ideal entry zone
+            elif rsi > 85: buy_power -= 20 # Too hot
+            
+            # Total Score from cache
+            # We rely on the pre-calculated score if available
+            # row index is ticker in some cases? No, iterrows on DataFrame
+            # Check if columns exist
+            cached_score = 0
+            if 'MidScore' in row: cached_score = row['MidScore']
+            
+            final_score = cached_score + buy_power
+            
+            candidates.append({
+                'Ticker': t,
+                'Score': final_score, # Use this combined score for ranking
+                'RawScore': cached_score,
+                '1mo': ret_1mo,
+                'RVOL': rvol
+            })
+    
+    # Sort by Score
+    candidates.sort(key=lambda x: x['Score'], reverse=True)
+    return candidates[:top_n]

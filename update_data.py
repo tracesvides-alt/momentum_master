@@ -55,12 +55,12 @@ def fetch_metadata_batch(tickers):
         targets.append(ticker)
     
     if skipped_count > 0:
-        print(f"  ⏭️ Skipped {skipped_count}/{total} tickers (Cached).")
+        print(f"  Skipped {skipped_count}/{total} tickers (Cached).")
     
     if not targets:
         return metadata
 
-    print(f"  ⚡ Fetching metadata for {len(targets)} tickers in parallel...")
+    print(f"  Fetching metadata for {len(targets)} tickers in parallel...")
 
     # スレッドセーフなカウンタ
     lock = threading.Lock()
@@ -104,8 +104,8 @@ def fetch_metadata_batch(tickers):
         
         return tkr, res
 
-    # 並列実行 (max_workers=10程度が安全)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    # 並列実行 (max_workers=2程度が安全)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future_to_ticker = {executor.submit(fetch_single, t): t for t in targets}
         for future in concurrent.futures.as_completed(future_to_ticker):
             tkr, data = future.result()
@@ -115,15 +115,15 @@ def fetch_metadata_batch(tickers):
     return metadata
 
 def main():
-    print(f"🚀 Starting Data Update: {datetime.now()}")
+    print(f"Starting Data Update: {datetime.now()}")
     
     # 1. 候補取得
-    print("📋 Fetching Candidates...")
+    print("Fetching Candidates...")
     candidates = market_logic.get_momentum_candidates()
-    print(f"📋 Candidates Count: {len(candidates)}")
+    print(f"Candidates Count: {len(candidates)}")
     
     # 2. データ計算
-    print("📊 Calculating Metrics...")
+    print("Calculating Metrics...")
     df_metrics, history_dict = market_logic.calculate_momentum_metrics(candidates)
     
     if df_metrics is not None and not df_metrics.empty:
@@ -133,22 +133,22 @@ def main():
         # ランキングデータ
         csv_path = "data/momentum_cache.csv"
         df_metrics.to_csv(csv_path, index=False)
-        print(f"✅ Saved {csv_path}")
+        print(f"Saved {csv_path}")
         
         # チャート用履歴データ (Pickle形式が軽くて速い)
         pkl_path = "data/history_cache.pkl"
         with open(pkl_path, "wb") as f:
             pickle.dump(history_dict, f)
-        print(f"✅ Saved {pkl_path}")
+        print(f"Saved {pkl_path}")
         
         # 4. メタデータ取得・保存（新規追加）
-        print("📝 Fetching Metadata for All Candidates...")
+        print("Fetching Metadata for All Candidates...")
         metadata = fetch_metadata_batch(candidates)
         
         metadata_path = "data/metadata_cache.json"
         with open(metadata_path, "w", encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
-        print(f"✅ Saved {metadata_path} ({len(metadata)} tickers)")
+        print(f"Saved {metadata_path} ({len(metadata)} tickers)")
         
         # 更新時刻を記録
         txt_path = "data/last_updated.txt"
@@ -157,10 +157,10 @@ def main():
         JST = timezone(timedelta(hours=9))
         with open(txt_path, "w") as f:
             f.write(datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"))
-        print(f"✅ Saved {txt_path}")
+        print(f"Saved {txt_path}")
             
     else:
-        print("❌ Data update failed (Empty DataFrame)")
+        print("Data update failed (Empty DataFrame)")
         exit(1) # エラー終了
 
 if __name__ == "__main__":

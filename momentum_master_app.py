@@ -11,6 +11,7 @@ from io import StringIO
 import random
 from datetime import datetime, date
 import plotly.express as px
+import plotly.graph_objects as go
 import re
 import pickle
 import os
@@ -1571,6 +1572,63 @@ def render_momentum_master():
             with st.expander(f"👇 View Remaining {remaining_count} (6-{len(df)})", expanded=False):
                 render_rows(hidden_df)
 
+    # --- 🚨 Pre-Calculate Daily Signals (Inserted for Tabs Access) ---
+    buy_breakout = []
+    buy_reversal = []
+    sells = []
+    
+    if history_dict:
+        try:
+             daily_signals = market_logic.get_todays_signals(history_dict)
+             
+             # Extract Lists
+             buy_breakout = daily_signals.get('Buy_Breakout', [])
+             buy_reversal = daily_signals.get('Buy_Reversal', [])
+             sells = daily_signals.get('Sell', [])
+             
+             total_scanned = len(history_dict)
+             
+             # ALWAYS show section (User can verify scanning works)
+             st.markdown(f"### 🔔 本日の売買シグナル速報 <span style='font-size:0.6em; color:gray;'>(Scanned {total_scanned} stocks)</span>", unsafe_allow_html=True)
+             
+             cols_sig = st.columns(3)
+             
+             # 1. Breakout
+             with cols_sig[0]:
+                 if buy_breakout:
+                     st.success(f"**🚀 Breakout ({len(buy_breakout)})**")
+                     st.caption("高値更新 & トレンド継続")
+                     df_b = pd.DataFrame(buy_breakout)
+                     st.dataframe(df_b[['Ticker', 'Price', 'Reason']].style.format({'Price': '{:.2f}'}), hide_index=True)
+                 else:
+                     st.info("🚀 Breakout: None")
+
+             # 2. Reversal
+             with cols_sig[1]:
+                 if buy_reversal:
+                     st.success(f"**🎣 Reversal ({len(buy_reversal)})**")
+                     st.caption("MACD水面下からの反転")
+                     df_r = pd.DataFrame(buy_reversal)
+                     st.dataframe(df_r[['Ticker', 'Reason', 'Price']].style.format({'Price': '{:.2f}'}), hide_index=True)
+                 else:
+                     st.info("🎣 Reversal: None")
+
+             # 3. Sells
+             with cols_sig[2]:
+                 if sells:
+                     st.error(f"**👋 Sell Signals ({len(sells)})**")
+                     st.caption("Stop Loss Triggered")
+                     df_s = pd.DataFrame(sells)
+                     st.dataframe(df_s[['Ticker', 'Price', 'Reason']].style.format({'Price': '{:.2f}'}), hide_index=True)
+                 else:
+                     st.markdown("👋 Sell: None")
+             
+             st.markdown("---")
+             
+        except Exception as e:
+            st.error(f"Signal scan error: {e}")
+
+
     
     # --- Part 1.5: Worst 10 Stocks Calculation ---
     # Take Bottom 10 (Worst Performers) from the ORIGINAL df_metrics (unfiltered)
@@ -1606,6 +1664,10 @@ def render_momentum_master():
 
     bottom_10['Earnings'] = b_earnings
 
+
+
+
+
     # --- 🚨 Opportunity Alert (Short-Term Focus) ---
     # Reconstruct raw DF from history_dict for retroactive calculation
     # Only run if we have history
@@ -1633,7 +1695,7 @@ def render_momentum_master():
             pass
 
     # --- TABS Layout for Clean Screenshots ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Top 10 Stocks", "📉 Worst 10 Stocks", "🔥 Hottest Themes", "🥶 Coldest Themes", "🌡️ Sector Heatmap"])
+    tab1, tab_rev, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Top 10 Stocks", "🎣 Reversal Hunters", "📉 Worst 10 Stocks", "🔥 Hottest Themes", "🥶 Coldest Themes", "🌡️ Sector Heatmap"])
     
     # 1. Top 10
     with tab1:
@@ -1653,7 +1715,45 @@ def render_momentum_master():
                 hide_index=True
             )
             
-    # 2. Worst 10
+    # 2. Reversal Hunters (New)
+    with tab_rev:
+        st.markdown(f"### 🎣 Reversal Candidates (MACD Golden Cross from Lows)")
+        if buy_reversal:
+            # Convert to DF for display
+            # We need to enrich it slightly to match the card view structure if possible, 
+            # or just use a simple DF for now.
+            # Let's try to reuse render_mobile_card_view by creating a mock DF with necessary columns.
+            rev_tickers = [item['Ticker'] for item in buy_reversal]
+            
+            # Filter original df_metrics to get full data for these tickers
+            if df_metrics is not None:
+                df_rev_full = df_metrics[df_metrics['Ticker'].isin(rev_tickers)].copy()
+                
+                # Add "Reason" from buy_reversal to the DF
+                ticker_to_reason = {item['Ticker']: item['Reason'] for item in buy_reversal}
+                df_rev_full['Signal_Reason'] = df_rev_full['Ticker'].map(ticker_to_reason)
+                
+                # Override AI Strategy with Reason for clarity
+                df_rev_full['AI Strategy'] = df_rev_full['Signal_Reason']
+                
+                if use_mobile_view:
+                     render_mobile_card_view(df_rev_full, selected_period)
+                else:
+                    # Desktop
+                    st.dataframe(
+                        df_rev_full[['Ticker', 'Name', 'Sector', 'Price', 'Signal_Reason', selected_period]].style.format({
+                            'Price': '{:.2f}', 
+                            selected_period: '{:+.2f}%'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+            else:
+                st.warning("Metrics data missing.")
+        else:
+            st.info("No Reversal Candidates found currently.")
+
+    # 3. Worst 10
     with tab2:
         st.markdown(f"### 📉 Worst 10 Performers<br><span style='font-size: 0.8em; color: gray;'>{period_map[selected_period]}</span>", unsafe_allow_html=True)
         if use_mobile_view:
@@ -1848,28 +1948,85 @@ def render_momentum_master():
         st.caption("各セクターの「勝ち組 Top 3」と「負け組 Bottom 3」をヒートマップ表示")
 
     SECTOR_JP_MAP = {
-        "🖥️ AI: Hardware & Cloud Infra": "🖥️ AI: ハードウェア & クラウド",
-        "🧠 AI: Software & SaaS": "🧠 AI: ソフトウェア & SaaS",
-        "💸 Crypto & FinTech": "💸 クリプト & フィンテック",
-        "🌌 Space & Defense": "🌌 宇宙 & 防衛",
+        # --- 1. Semi & AI Compute ---
+        "🧠 Semi: AI Compute & Logic": "🧠 半導体: AIコンピュート & ロジック",
+        "🏗️ Semi: Equipment & Foundry": "🏗️ 半導体: 製造装置 & ファウンドリ",
+        "🖥️ AI Infra: Server & Memory": "🖥️ AIインフラ: サーバー & メモリ",
+        "🔌 Semi: Analog & Power": "🔌 半導体: アナログ & パワー",
+        
+        # --- 2. AI Software & Security ---
+        "🧠 AI: Big Tech": "🧠 AI: ビッグテック",
+        "🛡️ AI: Cybersecurity": "🛡️ AI: サイバーセキュリティ",
+        "☁️ AI: SaaS & Data Apps": "☁️ AI: SaaS & データアプリ",
+        "🤖 Robotics & Automation": "🤖 ロボティクス & 自動化",
+        
+        # --- 3. Crypto & FinTech ---
+        "🪙 Crypto: Miners & Assets": "🪙 クリプト: マイナー & 資産",
+        "💳 FinTech & Payments": "💳 フィンテック: 決済",
+        
+        # --- 4. Defense & Space ---
+        "🛡️ Defense: Major Contractors": "🛡️ 防衛: 大手請負",
+        "🚀 Space & Future Mobility": "🚀 宇宙: 宇宙 & 次世代モビリティ",
+        "🚁 Defense: Drones & Tech": "🚁 防衛: ドローン & テック",
+        
+        # --- 5 & 6. Energy & Utilities ---
         "☢️ Energy: Nuclear": "☢️ エネルギー: 原子力",
-        "⚡ Energy: Power & Renewables": "⚡ エネルギー: 電力 & 再エネ",
-        "🛢️ Energy: Oil & Gas": "🛢️ エネルギー: 石油 & ガス",
-        "💊 BioPharma: Big Pharma & Obesity": "💊 製薬: 大手 & 肥満薬",
-        "🧬 BioPharma: Biotech & Gene": "🧬 製薬: バイオテク & 遺伝子",
-        "🏥 MedTech & Health": "🏥 メドテック & ヘルスケア",
-        "🍔 Consumer: Food & Bev": "🍔 消費財: 食品 & 飲料",
+        "💡 Utilities: Regulated": "💡 公益: 規制電力",
+        "☀️ Energy: Solar & Clean Tech": "☀️ エネルギー: 太陽光 & クリーンテック",
+        
+        # --- 7. Oil & Gas ---
+        "🛢️ Energy: Integrated Majors": "🛢️ エネルギー: 統合石油メジャー",
+        "🏗️ Energy: E&P (Upstream)": "🏗️ エネルギー: E&P (上流)",
+        "🔧 Energy: Services & Equipment": "🔧 エネルギー: サービス & 設備",
+        "🛤️ Energy: Midstream": "🛤️ エネルギー: ミッドストリーム",
+        
+        # --- 8-10. Bio & Health ---
+        "💊 BioPharma: Big Pharma & Obesity": "💊 製薬: 大手製薬 & 肥満薬",
+        "🧬 Biotech: Commercial Leaders": "🧬 バイオ: 商用リーダー",
+        "🧪 Biotech: Gene & Cell Therapy": "🧪 バイオ: 遺伝子 & 細胞治療",
+        "🔬 Biotech: Clinical & Growth": "🔬 バイオ: 臨床 & グロース",
+        "🦾 MedTech & Devices": "🦾 医療: 医療機器 & デバイス",
+        "🏥 Health Services & Insurers": "🏥 医療: ヘルスケアサービス & 保険",
+        "📱 MedTech: Digital Health & Services": "📱 医療: デジタルヘルス & サービス",
+        
+        # --- 11-13. Consumer ---
+        "🍔 Consumer: Restaurants": "🍔 消費財: レストラン",
+        "🥤 Consumer: Food & Bev Staples": "🥤 消費財: 食品 & 飲料",
         "🛒 Consumer: Retail & E-Com": "🛒 消費財: 小売 & Eコマース",
-        "👗 Consumer: Apparel & Leisure": "👗 消費財: アパレル & レジャー",
-        "🚗 Auto & EV": "🚗 自動車 & EV",
-        "🏘️ Real Estate & REITs": "🏘️ 不動産 & REITs",
-        "🏦 Finance: Banks & Capital": "🏦 金融: 銀行 & 資本市場",
-        "🏗️ Industrials & Transport": "🏗️ 資本財 & 輸送",
-        "⛏️ Resources & Materials": "⛏️ 資源 & 素材",
-        "📱 Tech: Communication": "📱 テック: 通信",
-        "🏠 Homebuilders & Residential": "🏠 住宅 & 建設",
-        "⚛️ Tech: Quantum Computing": "⚛️ テック: 量子コンピュータ",
-        "🏗️ Engineering & Construction": "🏗️ エンジニアリングと建設"
+        "✈️ Consumer: Travel & Leisure": "✈️ 消費財: 旅行 & レジャー",
+        "👗 Consumer: Apparel & Luxury": "👗 消費財: アパレル & ラグジュアリー",
+        
+        # --- 14. Auto ---
+        "🚗 Auto & EV": "🚗 自動車: 自動車 & EV",
+        
+        # --- 15. Real Estate ---
+        "📡 Real Estate: Digital Infra": "📡 不動産: デジタルインフラ",
+        "🏘️ Real Estate: Traditional": "🏘️ 不動産: 伝統的REIT",
+        "🏠 Homebuilders & Residential": "🏠 住宅: 住宅建設 & 不動産",
+        
+        # --- 16. Finance ---
+        "🏛️ Finance: Mega Banks": "🏛️ 金融: メガバンク",
+        "🏦 Finance: Regional Banks": "🏦 金融: 地方銀行",
+        "📈 Finance: Capital Markets & PE": "📈 金融: 資本市場 & PE",
+        "💳 Finance: Credit Cards": "💳 金融: クレジットカード", # Old Key Cleanup might be needed if logic changed in market_logic, but I checked key is 'Credit Cards & Consumer'
+        "💳 Finance: Credit Cards & Consumer": "💳 金融: クレジットカード & 消費者金融",
+        "☂️ Finance: Insurance": "☂️ 金融: 保険",
+        
+        # --- 17. Industrials ---
+        "🏭 Industrials: Machinery": "🏭 資本財: 機械 & 製造",
+        "✈️ Transport & Logistics": "✈️ 輸送: 物流 & 輸送",
+        "🏗️ Engineering & Construction": "🏗️ 建設: エンジニアリング & 建設",
+        
+        # --- 18. Resources ---
+        "🥇 Resources: Gold & Silver": "🥇 資源: 金 & 銀",
+        "🏗️ Resources: Base Metals (Cu, Fe, Al)": "🏗️ 資源: ベースメタル (銅鉄アルミ)",
+        "🔋 Resources: Battery & EV Materials": "🔋 資源: 電池材料 & EV素材",
+        "🧲 Resources: Rare Earths & Specialty": "🧲 資源: レアアース & 特殊金属",
+        "⚗️ Resources: Chemicals & Materials": "⚗️ 資源: 化学 & 素材",
+        "💍 Resources: PGM & Royalty": "💍 資源: 白金族 & ロイヤルティ",
+        
+        # --- Tech ---
+        "⚛️ Tech: Quantum Computing": "⚛️ テック: 量子コンピュータ"
     }
     
     def render_sector_heatmap(df, period):
@@ -1879,12 +2036,12 @@ def render_momentum_master():
             df_sec = df[df['Ticker'].isin(tickers)]
             if df_sec.empty: continue
             
-            # Map to JP Name (Fallback to English if missing)
+            # Use Japanese Name for EVERYTHING now
             jp_name = SECTOR_JP_MAP.get(sector_name, sector_name)
             
             avg_ret = df_sec[period].mean()
             sector_stats.append({
-                'name': jp_name,
+                'name': jp_name, # Storing JP Name
                 'avg': avg_ret,
                 'tickers': tickers,
                 'df': df_sec
@@ -1895,113 +2052,180 @@ def render_momentum_master():
         
         if not sector_stats: return
 
-        # Identify Top 3 and Bottom 3
-        top_3 = []
-        bottom_3 = []
-        others = []
+        st.markdown(f"### 📊 Sector Momentum Ranking <span style='font-size:0.8em; color:gray;'>(Click 'Details' to expand)</span>", unsafe_allow_html=True)
         
-        if len(sector_stats) >= 6:
-            top_3 = sector_stats[:3]
-            bottom_3 = sector_stats[-3:] 
+        # Styles (flush left HTML) - Restored Style A
+        styles = """
+<style>
+.rank-card {
+    background-color: #151515;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 2px; /* Close gap to expander */
+    display: grid;
+    grid-template-columns: 40px 1fr 100px 120px;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid #333;
+    transition: transform 0.2s;
+}
+.rank-card:hover { border-color: #555; }
+
+.rank-num { font-size: 1.4rem; font-weight: 900; color: #555; text-align: center; }
+.rank-1 { color: #FFD700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+.rank-2 { color: #C0C0C0; text-shadow: 0 0 10px rgba(192, 192, 192, 0.3); }
+.rank-3 { color: #CD7F32; text-shadow: 0 0 10px rgba(205, 127, 50, 0.3); }
+
+.sec-name { font-weight: 700; font-size: 1.0rem; color: #eee; }
+.sec-meta { font-size: 0.75rem; color: #aaa; display: flex; gap: 10px; margin-top: 4px; }
+.win-rate { background: #333; padding: 2px 6px; border-radius: 4px; }
+
+.top-gainer { font-size: 0.8rem; color: #888; text-align: right; }
+.gainer-tick { color: #bbb; font-weight: 600; }
+
+.ret-box { text-align: right; }
+.ret-val { font-size: 1.2rem; font-weight: 800; }
+.ret-bar-bg { width: 100%; height: 4px; background: #333; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.ret-bar-fill { height: 100%; border-radius: 2px; }
+
+/* Mobile adjustment */
+@media (max-width: 600px) {
+    .rank-card { grid-template-columns: 30px 1fr 80px; }
+    .top-gainer { display: none; }
+}
+</style>
+"""
+        st.markdown(styles, unsafe_allow_html=True)
+
+        # Helper to render a single sector block (HYBRID: Card + Expander)
+        def render_sector_block(stat, i, max_abs_ret):
+            rank = i + 1
+            avg = stat['avg']
+            df_s = stat['df']
             
-            featured = [x['name'] for x in top_3] + [x['name'] for x in bottom_3]
-            others = [x for x in sector_stats if x['name'] not in featured]
+            # Rank Style
+            rank_class = "rank-num"
+            icon = f"{rank}"
+            if rank == 1: 
+                rank_class += " rank-1"
+                icon = "🥇"
+            elif rank == 2: 
+                rank_class += " rank-2"
+                icon = "🥈"
+            elif rank == 3: 
+                rank_class += " rank-3"
+                icon = "🥉"
+            
+            # Color Logic
+            if avg >= 0:
+                val_color = "#00FF00"
+                bar_color = "linear-gradient(90deg, #004400, #00FF00)"
+            else:
+                val_color = "#FF4444"
+                bar_color = "linear-gradient(90deg, #440000, #FF4444)"
+                
+            # Bar Width
+            bar_width = min(100, (abs(avg) / max_abs_ret) * 100)
+            
+            # Meta Stats
+            win_count = len(df_s[df_s[period] > 0])
+            total_count = len(df_s)
+            win_rate_str = f"Win {win_count}/{total_count}"
+            
+            top_gainer = df_s.sort_values(period, ascending=False).iloc[0] if not df_s.empty else None
+            gainer_html = ""
+            if top_gainer is not None:
+                gainer_html = f"🚀 {top_gainer['Ticker']} <span class='gainer-tick'>{top_gainer[period]:+.1f}%</span>"
+
+            # 1. Render Visual Card
+            card_html = f"""
+<div class="rank-card">
+    <div class="{rank_class}">{icon}</div>
+    <div>
+        <div class="sec-name">{stat['name']}</div>
+        <div class="sec-meta">
+            <span class="win-rate">{win_rate_str}</span>
+        </div>
+    </div>
+    <div class="top-gainer">{gainer_html}</div>
+    <div class="ret-box">
+        <div class="ret-val" style="color: {val_color};">{avg:+.2f}%</div>
+        <div class="ret-bar-bg">
+            <div class="ret-bar-fill" style="width: {bar_width}%; background: {bar_color};"></div>
+        </div>
+    </div>
+</div>
+"""
+            st.markdown(card_html, unsafe_allow_html=True)
+            
+            # 2. Render Detail Expander BELOW the card
+            with st.expander("🔽 全銘柄を表示 / Show Details", expanded=False):
+                # Inside: Render ALL tickers in this sector
+                df_sorted = df_s.sort_values(period, ascending=False)
+                cols_grid = st.columns(3) if not use_mobile_view else st.columns(1)
+                for idx, row in df_sorted.iterrows():
+                    ticker = row['Ticker']
+                    ret_val = row.get(period, 0)
+                    price = row.get('Price', 0)
+                    color = "#00FF00" if ret_val > 0 else "#FF4444"
+                    bg_color = "rgba(0, 255, 0, 0.1)" if ret_val > 0 else "rgba(255, 0, 0, 0.1)"
+                    
+                    mini_card = f"""
+                    <div style="border: 1px solid #444; border-radius: 6px; padding: 8px; margin-bottom: 6px; background-color: #0e1117;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="font-weight: bold; font-size: 1.1em; color: #eee;">{ticker}</span>
+                                <span style="font-size: 0.8em; color: #aaa;">${price:.2f}</span>
+                            </div>
+                            <span style="font-weight: bold; color: {color}; background-color: {bg_color}; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">
+                                {ret_val:+.2f}%
+                            </span>
+                        </div>
+                    </div>
+                    """
+                    if use_mobile_view:
+                        st.markdown(mini_card, unsafe_allow_html=True)
+                    else:
+                        with cols_grid[idx % 3]:
+                            st.markdown(mini_card, unsafe_allow_html=True)
+
+        # Determine Max Return for Bar scaling
+        max_abs_ret = 0.1
+        if sector_stats:
+            max_val = max([abs(x['avg']) for x in sector_stats])
+            if max_val > 0: max_abs_ret = max_val
+
+        # Logic to Split Top/Middle/Bottom
+        if len(sector_stats) > 10:
+             # Top 5
+             for i in range(5):
+                 render_sector_block(sector_stats[i], i, max_abs_ret)
+             
+             # Middle
+             middle_count = len(sector_stats) - 10
+             mid_start = 5
+             mid_end = len(sector_stats) - 5
+             
+             st.markdown(f"<div style='margin: 10px 0;'>", unsafe_allow_html=True)
+             if st.checkbox(f"🔽 6位 〜 {mid_end}位 を表示 ({middle_count}セクター)", value=False):
+                 for i in range(mid_start, mid_end):
+                     render_sector_block(sector_stats[i], i, max_abs_ret)
+             st.markdown("</div>", unsafe_allow_html=True)
+             
+             # Bottom 5
+             for i in range(mid_end, len(sector_stats)):
+                 render_sector_block(sector_stats[i], i, max_abs_ret)
+                 
         else:
-            others = sector_stats
+             # Regular Full List
+             for i, stat in enumerate(sector_stats):
+                 render_sector_block(stat, i, max_abs_ret)
 
-        # Construct Display Order
-        for x in top_3: x['type'] = 'TOP'
-        for x in bottom_3: x['type'] = 'BOTTOM'
-        for x in others: x['type'] = 'NORMAL'
-        
-        display_order = top_3 + bottom_3 + others
-        
-        # Container Style
-        html_content = '<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">'
-        
-        for sec in display_order:
-            sector_name = sec['name']
-            # Remove emoji for clean text if needed, strictly speaking user asked for JP name.
-            # Keeping Emoji is good. 
-            # The previous code cleaned naming by splitting ':'. We should probably just use the mapped JP name as is?
-            # Or split it if it has emoji prefix?
-            # Let's clean it similarly: Split by ':' if present, but for JP map I included emojis.
-            # Actually, "AI: ハードウェア..." -> "ハードウェア..." might be cleaner?
-            # User request: "ヒートマップのセクター名は日本語も欲しいな" -> "I want Japanese sector names too"
-            # It implies full Japanese translation.
-            
-            cleaned_name = sector_name # Use full name for now or split?
-            # The previous logic was: display_name = sector_name.split(":")[-1].strip()
-            # If I mapped keys to "Emoji Name: JP Name", then splitting by ":" works well.
-            # My map keys are full keys (e.g. "🖥️ AI: Hardware & Cloud Infra")
-            # My map values are like "🖥️ AI: ハードウェア & クラウド"
-            # So splitting by ":" gives " ハードウェア & クラウド" -> "ハードウェア & クラウド". Perfect.
-            
-            # Special handling if no ':'
-            if ":" in sector_name:
-                cleaned_name = sector_name.split(":")[-1].strip()
-            else:
-                # Remove leading emoji for cleaner look or keep it?
-                # Previous code kept emoji in the `sector_name` loop variable but cleaned it for `display_name`.
-                # Actually, wait. Previous code: display_name = sector_name.split(":")[-1].strip() if ":" in sector_name else sector_name
-                # I'll stick to that logic to keep it compact.
-                cleaned_name = sector_name
-                
-            avg = sec['avg']
-            df_sec = sec['df']
-            stype = sec['type']
-            
-            # Header Styling based on Type
-            if stype == 'TOP':
-                header_bg = "linear-gradient(90deg, #b8860b, #daa520)" # Golden
-                header_text = f"🏆 {cleaned_name} (Avg {avg:+.1f}%)"
-                border_color = "#daa520"
-                container_shadow = "0 0 10px rgba(218, 165, 32, 0.3)"
-            elif stype == 'BOTTOM':
-                header_bg = "linear-gradient(90deg, #8b0000, #400000)" # Dark Red
-                header_text = f"📉 {cleaned_name} (Avg {avg:+.1f}%)"
-                border_color = "#8b0000"
-                container_shadow = "0 0 10px rgba(139, 0, 0, 0.3)"
-            else:
-                header_bg = "#262730"
-                header_text = f"{cleaned_name} (Avg {avg:+.1f}%)"
-                border_color = "#333"
-                container_shadow = "none"
+        st.markdown("---")
 
-            # Prepare Cell Data
-            df_sec_sorted = df_sec.sort_values(period, ascending=False)
+
             
-            if len(df_sec_sorted) <= 6:
-                display_tickers = df_sec_sorted
-            else:
-                s_top3 = df_sec_sorted.head(3)
-                s_bottom3 = df_sec_sorted.tail(3).sort_values(period, ascending=False)
-                display_tickers = pd.concat([s_top3, s_bottom3])
-            
-            # Build HTML
-            sector_html = f"""
-            <div style="flex: 1 1 300px; max-width: 400px; background-color: #1a1a1a; border: 2px solid {border_color}; border-radius: 8px; overflow: hidden; box-shadow: {container_shadow};">
-                <div style="background: {header_bg}; padding: 5px 10px; font-size: 0.9em; font-weight: bold; border-bottom: 1px solid #333; text-align: center; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{header_text}</div>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background-color: #333;">
-            """
-            
-            for _, row in display_tickers.iterrows():
-                t = row['Ticker']
-                ret = row.get(period, 0)
-                
-                if ret > 3.0: bg = "#006400"
-                elif ret > 0.0: bg = "#2E8B57"
-                elif ret > -3.0: bg = "#CD5C5C"
-                else: bg = "#8B0000"
-                
-                cell_html = f"""<div style="background-color: {bg}; padding: 10px 4px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60px;"><div style="font-weight: 900; font-size: 1.0em; color: white; letter-spacing: 0.5px;">{t}</div><div style="font-size: 0.8em; color: rgba(255,255,255,0.9);">{ret:+.1f}%</div></div>"""
-                sector_html += cell_html
-                
-            sector_html += "</div></div>"
-            html_content += sector_html
-            
-        html_content += "</div>"
-        st.markdown(html_content, unsafe_allow_html=True)
+
         
     if df_metrics is not None:
         with tab5:
@@ -2216,41 +2440,211 @@ def render_momentum_master():
         
 
 
+
+    
+    # ==========================================
+    # 🔍 Momentum Analyzer (Deep Dive)
+    # ==========================================
+    # --- Momentum Analyzer Tab ---
+    # With tab removed, this is now a top-level section
+    
+    # st.markdown("---") # Already present in previous context potentially, but let's ensure structure
+    st.subheader("🔍 個別銘柄詳細分析 & 売買シグナル")
+    st.caption("個別銘柄のモメンタム状態を詳細分析し、過去のチャートからAIが売買判断とアクションプランを提示します。")
+    
+    col_input, col_btn = st.columns([3, 1])
+    with col_input:
+        analyzer_ticker = st.text_input("ティッカーシンボルを入力 (例: NVDA, 7203.T)", value="NVDA").upper()
+    with col_btn:
+        st.write("") # Spacer
+        run_analysis = st.button("詳細分析を実行", type="primary")
+        
+    if run_analysis and analyzer_ticker:
+        with st.spinner(f"{analyzer_ticker} のデータを取得・分析中..."):
+            # Call Logic
+            df_hist, summary = market_logic.analyze_stock_history(analyzer_ticker)
+            
+            if df_hist is None:
+                st.error(f"エラー: {summary.get('error', '不明なエラーが発生しました')}")
+            else:
+                # --- 1. Status Badge & Action ---
+                status = summary['status']
+                action = summary['action']
+                score = summary.get('score', 0)
+                
+                # Color mapping
+                status_color = "#888"
+                if status == "BUY": status_color = "#00CC00" # Green
+                elif status == "HOLD": status_color = "#00AAFF" # BIue
+                elif status == "SELL": status_color = "#FF4444" # Red
+                elif status == "WAIT": status_color = "#FFA500" # Orange
+                
+                # Status Details with New Indicators
+                st.markdown(f"""
+                <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 5px solid {status_color}; margin-bottom: 20px;">
+                    <div style="display:flex; align-items:center; gap: 15px;">
+                        <span style="font-size: 2rem; font-weight: 900; color: {status_color};">{status}</span>
+                        <div style="flex-grow: 1;">
+                            <div style="font-size: 1.2rem; font-weight: bold;">{action}</div>
+                            <div style="font-size: 0.8rem; color: #ccc;">
+                                現在値: ${summary['price']:.2f} | RSI: {summary['rsi']:.1f} | MFI: {summary['mfi']:.1f}<br>
+                                RVOL: {summary['rvol']:.2f}倍 | MACDシグナル: {"Bullish (上昇)" if summary['macd'] > 0 else "Bearish (下落)"}<br>
+                                <b>損切ライン(Chandelier): ${summary['chandelier']:.2f}</b>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # --- Signal Explanation (Updated) ---
+                with st.expander("ℹ️ 新・シグナル判定基準と指標解説"):
+                    st.markdown("""
+                    **🎯 エントリー (Buy)**
+                    - **条件**: [バンド拡大/高値更新] + [RVOL>1.5] + [MACD好転] + **[ADX>25]**
+                    - **意味**: 「勢い(Momentum)」と「エネルギー(Expansion)」に加え、**「明確なトレンド発生(ADX)」** を確認します。
+                    - **制限**: 買い増し過熱防止のため、**1トレンドにつき最大3回まで** とし、かつ **5日間の間隔** を空けます。
+                    - **例外**: 大陽線によるトレンド転換(Reversal)や、明確な押し目(Re-entry)は別途判定します。
+                    
+                    **👋 エグジット (Sell/Profit Take/Stop)**
+                    - **条件**: ポジション保有中（Buy発生後）のみシグナルを監視します。ノーポジ迷子（Phantom Sell）は防ぎます。
+                    - **利確 (Profit)**: **RSI > 90** または MACDデッドクロス(※過熱後のみ)。逃げ遅れ防止(RSI<60割れ)も完備。
+                    - **損切 (Stop)**: **Chandelier Exit** を下回ったら即撤退。明確なトレンド終了サインです。
+                    
+                    **📉 Chandelier Exit (シャンデリア・イグジット)**
+                    - チャート上の **紫色の点線** です。振るい落としを防ぐため、**ATR×5.0** の広めに設定しています。
+                    - 株価がこれを割り込んだら、トレンド完全終了とみなして撤退してください。
+                    """)
+                
+                # --- 2. Interactive Chart (Plotly) ---
+                # Candlestick
+                fig = go.Figure(data=[go.Candlestick(x=df_hist.index,
+                                open=df_hist['Open'],
+                                high=df_hist['High'],
+                                low=df_hist['Low'],
+                                close=df_hist['Close'],
+                                name='株価')])
+                
+                # SMAs
+                fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['SMA50'], line=dict(color='#FFA500', width=1), name='SMA50 (中期)'))
+                fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['SMA150'], line=dict(color='green', width=1), name='SMA150'))
+                
+                # Chandelier Exit (Trailing Stop)
+                fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Chandelier_Exit'], 
+                                         line=dict(color='violet', width=1.5, dash='dot'), 
+                                         name='Chandelier Exit (損切ライン)'))
+                
+                # BB
+                fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['BB_Upper'], line=dict(color='gray', width=0), showlegend=False))
+                fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['BB_Lower'], line=dict(color='gray', width=0), fill='tonexty', fillcolor='rgba(128,128,128,0.1)', showlegend=False, name='BB'))
+                
+                # Buy/Sell Markers
+                signals = df_hist[df_hist['Signal'].notna()]
+                
+                for date, row in signals.iterrows():
+                    sig = row['Signal']
+                    reason = row['Reason']
+                    
+                    marker_color = "#00CC00" 
+                    # Use B/S text instead of simple arrow-only or long text
+                    symbol_text = "B" 
+                    bgcolor = "#00CC00"
+                    offset = 20
+                    y_anchor = row['Low']
+                    ay = 25 # Arrow length
+                    
+                    if sig == "Sell":
+                        marker_color = "#FF4444"
+                        symbol_text = "S"
+                        bgcolor = "#FF4444"
+                        offset = -20
+                        y_anchor = row['High']
+                        ay = -25
+                        
+                    # Detailed Hover Text
+                    hover_text = f"<b>{sig} Signal</b><br>{reason}<br>Price: ${row['Close']:.2f}"
+                    
+                    fig.add_annotation(
+                        x=date, y=y_anchor,
+                        text=symbol_text,
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=1.5,
+                        arrowcolor=marker_color,
+                        ax=0,
+                        ay=ay,
+                        bgcolor=bgcolor,
+                        bordercolor="#ffffff",
+                        borderwidth=1,
+                        borderpad=3,
+                        opacity=0.9,
+                        font=dict(color="white", size=10, weight="bold"),
+                        hovertext=hover_text
+                    )
+
+                fig.update_layout(
+                    title=dict(
+                        text=f"{analyzer_ticker} 強化版モメンタムチャート", 
+                        font=dict(size=14),
+                        x=0, y=1, xanchor='left', yanchor='top'
+                    ),
+                    yaxis_title="", # Save space
+                    xaxis_title="",
+                    xaxis_rangeslider_visible=False,
+                    height=400, # Compact height for mobile
+                    margin=dict(l=10, r=10, t=40, b=10), # Tight margins
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='white'),
+                    showlegend=True,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom", y=1.02,
+                        xanchor="right", x=1,
+                        font=dict(size=10),
+                        bgcolor="rgba(0,0,0,0)"
+                    ),
+                    dragmode='pan'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # --- 3. Alternatives ---
+                st.markdown("#### 💡 同セクターの有望銘柄（Buy候補）")
+                st.caption(f"入力された銘柄 ({analyzer_ticker}) と同じセクターで、**現在Buyシグナル点灯中または強い上昇トレンド**にある高スコア銘柄を提案します。")
+                
+                alternatives = market_logic.find_better_alternatives(analyzer_ticker, df_metrics)
+                
+                if alternatives:
+                    cols = st.columns(3)
+                    for i, alt in enumerate(alternatives):
+                        with cols[i % 3]:
+                            st.markdown(f"""
+                            <div style="border:1px solid #444; padding:10px; border-radius:5px; text-align:center;">
+                                <div style="color:#4ECDC4; font-weight:bold;">{alt['Ticker']}</div>
+                                <div style="font-size:0.8rem;">総合スコア: {alt['Score']:.1f}</div>
+                                <div style="font-size:0.7rem; color:#aaa;">RVOL: {alt['RVOL']:.1f}倍 | 1ヶ月: {alt['1mo']:+.1f}%</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("キャッシュ内に、より有望な（Buy条件を満たす）同セクター銘柄は見つかりませんでした。")
+
+    # ==========================================
+    # 🤖 AI Portfolio Builder (Alpha) - Collapsible
+    # ==========================================
     st.markdown("---")
-    st.subheader("🤖 AI Portfolio Builder (Alpha)")
-    st.caption("現在の市場環境（Momentum/Trend/Correlation）に基づき、AIが推奨する3つのポートフォリオ案です。")
     
-    
-    # Generate Portfolios
+    # Generate Portfolios Logic (Moved from Top)
     # Need correlation matrix for Bento Box
-    # Construct from history_dict
     with st.spinner("Calculating portfolio correlations..."):
-        # Align histories
         try:
-             # Create DataFrame from dict (keys=tickers, values=Series)
-             # Values are normalized history. 
-             # We need to make sure they share index or align. 
-             # history_dict contains normalized series with DateTime index.
-             
-             # Filter only relevant candidates to speed up? 
-             # Or just use all candidates history.
-             
              price_history_df = pd.DataFrame(history_dict)
-             
-             # Some series might be shorter, align on recent date?
-             # corr() handles NaNs by ignoring pairs.
              corr_matrix = price_history_df.corr()
-             
-             # If empty (unexpected)
              if corr_matrix.empty:
                  corr_matrix = pd.DataFrame()
         except Exception as e:
-            # st.error(f"Correlation calc failed: {e}")
             corr_matrix = pd.DataFrame()
 
-    # Identify Short-term Losers (to exclude from AI Portfolios)
-    # Worst 10 for 1d and 5d
-    # Note: df_metrics contains '1d' and '5d' for ALL candidates
+    # Identify Short-term Losers
     exclude_list = set()
     try:
         if '1d' in df_metrics.columns:
@@ -2260,63 +2654,67 @@ def render_momentum_master():
             worst_5d = df_metrics.sort_values('5d', ascending=True).head(10)['Ticker'].tolist()
             exclude_list.update(worst_5d)
     except:
-        pass # Safety
+        pass 
 
     ai_portfolios = generate_ai_portfolios(df_sorted, corr_matrix, exclude_tickers=exclude_list)
     
-    tab1, tab2, tab3, tab4 = st.tabs(["🐯 The Hunter", "🦅 The Sniper", "🏰 The Fortress", "🥗 The Bento Box"])
-    
-    def render_portfolio_tab(name, df, emoji, desc):
-        if df.empty:
-            st.warning("条件に合致する銘柄が見つかりませんでした。")
-            return
-            
-        col1, col2 = st.columns([1.5, 1])
+    with st.expander("🤖 AI Portfolio Builder (Alpha) - クリックして展開", expanded=False):
+        st.caption("現在の市場環境（Momentum/Trend/Correlation）に基づき、AIが推奨する3つのポートフォリオ案です。")
         
-        with col1:
-            st.markdown(f"### {emoji} {name}")
-            st.caption(desc)
+        def render_portfolio_tab(name, df, emoji, desc):
+            if df.empty:
+                st.warning("条件に合致する銘柄が見つかりませんでした。")
+                return
+                
+            col1, col2 = st.columns([1.5, 1])
             
-            # Display Table
-            display_cols = ['Ticker', 'Price', '1mo', '3mo', 'RVOL', 'RSI', 'Signal']
-            # Ensure cols exist
-            valid_cols = [c for c in display_cols if c in df.columns]
-            st.dataframe(df[valid_cols].style.format({
-                'Price': "{:.2f}",
-                '1mo': "{:+.2f}%",
-                '3mo': "{:+.2f}%",
-                'RVOL': "{:.2f}",
-                'RSI': "{:.1f}"
-            }), hide_index=True)
-            
-            # Virtual Performance
-            sim_return = calculate_simulated_return(df)
-            st.metric("📊 過去1ヶ月の仮想リターン (直近実績)", f"{sim_return:+.2f}%")
-            
-        with col2:
-            # Pie Chart
-            # Equal weight for now
-            df['Weight'] = 100 / len(df)
-            fig = px.pie(df, values='Weight', names='Ticker', title=f"{name} Allocation", hole=0.4)
-            st.plotly_chart(fig, use_container_width=True)
+            with col1:
+                st.markdown(f"### {emoji} {name}")
+                st.caption(desc)
+                
+                # Display Table
+                display_cols = ['Ticker', 'Price', '1mo', '3mo', 'RVOL', 'RSI', 'Signal']
+                # Ensure cols exist
+                valid_cols = [c for c in display_cols if c in df.columns]
+                st.dataframe(df[valid_cols].style.format({
+                    'Price': "{:.2f}",
+                    '1mo': "{:+.2f}%",
+                    '3mo': "{:+.2f}%",
+                    'RVOL': "{:.2f}",
+                    'RSI': "{:.1f}"
+                }), hide_index=True)
+                
+                # Virtual Performance
+                sim_return = calculate_simulated_return(df)
+                st.metric("📊 過去1ヶ月の仮想リターン (直近実績)", f"{sim_return:+.2f}%")
+                
+            with col2:
+                # Pie Chart
+                # Equal weight for now
+                df['Weight'] = 100 / len(df)
+                fig = px.pie(df, values='Weight', names='Ticker', title=f"{name} Allocation", hole=0.4)
+                st.plotly_chart(fig, use_container_width=True)
 
-    with tab1:
-        render_portfolio_tab("The Hunter (短期集中)", ai_portfolios['Hunter'], "🐯", 
-                             "**攻撃型:** リターン・出来高重視。加熱感（RSI高）を問わず、とにかく「今強い」銘柄に乗る戦略。※高値掴み注意")
+        tab1, tab2, tab3, tab4 = st.tabs(["🐯 The Hunter", "🦅 The Sniper", "🏰 The Fortress", "🥗 The Bento Box"])
         
-    with tab2:
-        render_portfolio_tab("The Sniper (精密射撃)", ai_portfolios['Sniper'], "🦅", 
-                             "**厳選型:** Hunterと同様に強いモメンタムを持ちつつ、RSI < 70 の「まだ加熱していない」銘柄に絞った戦略。安全マージン重視。")
-                             
-    with tab3:
-        render_portfolio_tab("The Fortress (堅実トレンド)", ai_portfolios['Fortress'], "🏰",
-                             "**順張り型:** 3ヶ月、6ヶ月、年初来がすべてプラスの「負けない」トレンド銘柄。安定した上昇気流に乗るための構成。")
-        
-    with tab4:
-        render_portfolio_tab("The Bento Box (セクター分散)", ai_portfolios['Bento'], "🥗",
-                             "**バランス型:** 主要テーマ（AI・エネ・金融・宇宙・消費）からそれぞれ最強の1銘柄をピックアップ。相関係数を抑えつつリターンを狙う幕の内弁当。")
-                             
+        with tab1:
+            render_portfolio_tab("The Hunter (短期集中)", ai_portfolios['Hunter'], "🐯", 
+                                 "**攻撃型:** リターン・出来高重視。加熱感（RSI高）を問わず、とにかく「今強い」銘柄に乗る戦略。※高値掴み注意")
+            
+        with tab2:
+            render_portfolio_tab("The Sniper (精密射撃)", ai_portfolios['Sniper'], "🦅", 
+                                 "**厳選型:** Hunterと同様に強いモメンタムを持ちつつ、RSI < 70 の「まだ加熱していない」銘柄に絞った戦略。安全マージン重視。")
+                                 
+        with tab3:
+            render_portfolio_tab("The Fortress (堅実トレンド)", ai_portfolios['Fortress'], "🏰",
+                                 "**順張り型:** 3ヶ月、6ヶ月、年初来がすべてプラスの「負けない」トレンド銘柄。安定した上昇気流に乗るための構成。")
+            
+        with tab4:
+            render_portfolio_tab("The Bento Box (セクター分散)", ai_portfolios['Bento'], "🥗",
+                                 "**バランス型:** 主要テーマ（AI・エネ・金融・宇宙・消費）からそれぞれ最強の1銘柄をピックアップ。相関係数を抑えつつリターンを狙う幕の内弁当。")
+                            
     # --- Footer: Disclaimer ---
+
     st.markdown("---")
     st.caption("⚠️ **免責事項**: 本アプリケーションは情報提供のみを目的としており、投資勧誘や助言を意図するものではありません。表示されるデータやAIによる分析結果は過去の実績に基づいており、将来の運用成果を保証するものではありません。投資判断はご自身の責任において行ってください。")
 
