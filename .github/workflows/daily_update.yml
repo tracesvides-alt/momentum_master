@@ -28,6 +28,11 @@ jobs:
       - name: Run update script
         run: python update_data.py
 
+      - name: Generate and post daily tweet
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python generate_tweet.py
+
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
@@ -35,3 +40,4 @@ jobs:
           git add -f data/
           git commit -m "📈 Auto-update market data [$(date)]" || exit 0
           git push
+
