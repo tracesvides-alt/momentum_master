@@ -1,32 +1,34 @@
 import streamlit as st
 import yfinance as yf
-from deep_translator import GoogleTranslator
+# from deep_translator import GoogleTranslator # Lazy load
 import time
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
+# import seaborn as sns # Lazy load
+# import matplotlib.pyplot as plt # Lazy load
 import requests
 from io import StringIO
 import random
 from datetime import datetime, date
-import plotly.express as px
-import plotly.graph_objects as go
+# import plotly.express as px # Lazy load
+# import plotly.graph_objects as go # Lazy load
 import re
 import pickle
 import os
 import json
-from deep_translator import GoogleTranslator
-from newspaper import Article, Config
-import nltk
+import discord_utils
+# from newspaper import Article, Config # Lazy load
 
-# Ensure NLTK data is available
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt', quiet=True)
-    nltk.download('punkt_tab', quiet=True)
+# import nltk # Lazy load
+
+# Ensure NLTK data is available -> Moved to Lazy Load block in get_article_summary
+# try:
+#     nltk.data.find('tokenizers/punkt')
+#     nltk.data.find('tokenizers/punkt_tab')
+# except LookupError:
+#     nltk.download('punkt', quiet=True)
+#     nltk.download('punkt_tab', quiet=True)
+
 
 @st.cache_data(show_spinner=False, ttl=86400)
 def get_article_summary(url):
@@ -35,6 +37,18 @@ def get_article_summary(url):
     and translates it to Japanese.
     """
     try:
+        from newspaper import Article, Config
+        from deep_translator import GoogleTranslator
+        import nltk
+
+        # Ensure NLTK data is available (Lazy load)
+        try:
+           nltk.data.find('tokenizers/punkt')
+           nltk.data.find('tokenizers/punkt_tab')
+        except LookupError:
+           nltk.download('punkt', quiet=True)
+           nltk.download('punkt_tab', quiet=True)
+
         if not url or url == "#": return None
         
         # Optimization
@@ -95,7 +109,7 @@ def get_article_summary(url):
 import market_logic
 import importlib
 importlib.reload(market_logic)
-from market_logic import SECTOR_DEFINITIONS, TICKER_TO_SECTOR, STATIC_MOMENTUM_WATCHLIST, THEMATIC_ETFS, get_ai_stock_picks, SECTOR_TO_ETF
+from market_logic import SECTOR_DEFINITIONS, TICKER_TO_SECTOR, STATIC_MOMENTUM_WATCHLIST, THEMATIC_ETFS, get_ai_stock_picks, SECTOR_TO_ETF, MAJOR_INDICES, STATIC_MENU_ITEMS
 
 # --- Risk Management Helpers ---
 def get_ticker_news(ticker, company_name=None):
@@ -207,16 +221,7 @@ def get_ticker_news(ticker, company_name=None):
         return results
     except Exception as e:
         return []
-STATIC_MENU_ITEMS = [
-    "--- 🌏 指数・為替・債券 (Indices/Forex/Bonds) ---",
-    'USDJPY=X', '^TNX', 'BTC-USD', 'GLD',
-    "--- 💻 米国株：AI・ハイテク (US Tech/AI) ---",
-    'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'AAPL', 'META', 'AMD', 'PLTR', 'AVGO',
-    "--- 📊 米国ETF：セクター (US Sector ETFs) ---",
-    'QQQ', 'SPY', 'SMH', 'VGT', 'XLV', 'XLP', 'XLE', 'XLF',
-    "--- 🚀 テーマ別ETF (Thematic ETFs) ---",
-    'URA', 'COPX', 'QTUM', 'ARKX', 'NLR'
-]
+# STATIC_MENU_ITEMS is now imported from market_logic
 
 # ... (rest of constants stays same until end of lists) ...
 
@@ -229,49 +234,40 @@ STATIC_MENU_ITEMS = [
 # THEMATIC_ETFS is imported.
 
 # --- Risk Management Helpers ---
+@st.cache_data(ttl=3600*12)
 def get_earnings_next(ticker):
     """
-    Fetches the next earnings date.
+    Fetches the next earnings date from CACHE.
     Returns: formatted string (e.g., '⚠️ In 3 days' or '2025-10-30') or '-'
     """
-    try:
-        t = yf.Ticker(ticker)
-        cal = t.calendar
-        
-        # Handle dictionary return (newer yfinance)
-        if isinstance(cal, dict):
-            # Key varies: 'Earnings Date' or 'Earnings High' etc.
-            # Usually 'Earnings Date' is a list of dates
-            dates = cal.get('Earnings Date', [])
-            if not dates:
-                return "-"
-            next_date = dates[0] # Take the first one
-        
-        # Handle DataFrame return (older yfinance)
-        elif isinstance(cal, pd.DataFrame):
-            if cal.empty: return "-"
-            # Often index is 0, 1... and columns are dates
-            # Or formatted differently. Let's try to grab the first date available.
-            # This part is tricky without exact dataframe structure from recent fix, 
-            # but usually it finds 'Earnings Date' in dict form now.
-            return "-" 
-        else:
-            return "-"
-
-        # Calculate days until
-        if isinstance(next_date, (datetime, date)):
-            d = next_date.date() if isinstance(next_date, datetime) else next_date
-            today = date.today()
-            delta = (d - today).days
+    # Load cache only once per cached run (though function is cached, file read is cheap)
+    earnings_path = "data/earnings_cache.json"
+    
+    next_date_str = "-"
+    
+    if os.path.exists(earnings_path):
+        try:
+            with open(earnings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                next_date_str = data.get(ticker, "-")
+        except:
+            pass
             
-            if 0 <= delta <= 7:
-                return f"⚠️ In {delta} days"
-            elif delta < 0:
-                # Past earnings (sometimes API returns previous)
-                return "-"
-            else:
-                return d.strftime("%Y-%m-%d")
+    if next_date_str == "-":
         return "-"
+        
+    # Calculate days until
+    try:
+        next_date = datetime.strptime(next_date_str, "%Y-%m-%d").date()
+        today = date.today()
+        delta = (next_date - today).days
+        
+        if 0 <= delta <= 7:
+            return f"⚠️ In {delta} days"
+        elif delta < 0:
+            return "-" # Past
+        else:
+            return next_date_str
     except:
         return "-"
 
@@ -545,39 +541,22 @@ def calculate_stats(df_prices):
 @st.cache_data(ttl=3600)
 def get_dynamic_trending_tickers():
     """
-    Fetches 'Most Active' tickers from Yahoo Finance.
-    Existing logic for Correlation Radar default items.
+    Fetches 'Most Active' tickers from CACHE (data/trending_cache.json).
+    Falls back to static list if cache missing.
     """
     fallback_tickers = ['RKLB', 'MU', 'OKLO', 'LLY', 'SOFI']
-    url = "https://finance.yahoo.com/most-active"
+    cache_path = "data/trending_cache.json"
     
-    # Create exclusion set from static menu
-    exclusion_set = {t for t in STATIC_MENU_ITEMS if not t.startswith('---')}
-    
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        dfs = pd.read_html(StringIO(response.text))
-        
-        if dfs:
-            df_scrape = dfs[0]
-            if 'Symbol' in df_scrape.columns:
-                candidates_raw = df_scrape['Symbol'].head(30).dropna().astype(str).tolist()
-                candidates = [t.split()[0] for t in candidates_raw if t]
-
-                # Quick filtering logic (simplified from original for brevity)
-                filtered = [t for t in candidates if t not in exclusion_set]
-                return filtered[:5]
-
-        return fallback_tickers
-        
-    except Exception as e:
-        print(f"Failed to fetch trending tickers: {e}")
-        return fallback_tickers
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('tickers', fallback_tickers)
+        except:
+            return fallback_tickers
+            
+    # If no cache, return fallback (Avoid network call on startup)
+    return fallback_tickers
 
 def generate_insights(corr_matrix):
     insights = []
@@ -858,49 +837,36 @@ def get_ticker_metadata(ticker):
     
     metadata_cache = load_metadata_cache(mtime)
     
+    
+    # Init variables
+    name = ticker
+    industry = ''
+    summary = ''
+    
+    # 1. Try Cache
     if ticker in metadata_cache:
         data = metadata_cache[ticker]
         name = data.get('name', ticker)
         industry = data.get('industry', '')
         summary = data.get('summary', '')
         
-        # category優先順位: industry > 'Unknown'
-        category = industry if industry else '🌊 Market Mover'
-        
-        return name, category, summary
+    # 2. Live Fetch -> REMOVED for Speed (User Request: 1-2s response)
+    # Only fetch if explicitly requested via "Update Metadata" button.
+    # if name == ticker:
+    #     try:
+            # ... (Suppressed)
+    #     except:
+    #          pass 
+
+    # category優先順位: industry > 'Unknown'
+    # Fallback to sector if industry is empty
+    category = industry if industry else '🌊 Market Mover'
     
-    # 2. Fallback to API (Slow Path - for new tickers not in cache)
-    try:
-        t = yf.Ticker(ticker)
-        info = t.info
-        name = info.get('shortName', info.get('longName', ticker))
-        
-        # Priority: Industry > Sector > 'Unknown'
-        industry = info.get('industry')
-        sector = info.get('sector')
-        category = industry if industry else (sector if sector else '🌊 Market Mover')
-        
-        # Summary (First 160 chars, no translation for performance)
-        summary_en = info.get('longBusinessSummary', '')
-        summary = ""
-        if summary_en:
-            summary_en = summary_en.replace('\n', ' ').strip()
-            if len(summary_en) > 160:
-                summary_en = summary_en[:160]
-            # 翻訳（フォールバック用：通常はキャッシュから日本語が読み込まれる）
-            try:
-                summary = translate_to_japanese(summary_en)
-            except:
-                summary = summary_en  # 翻訳失敗時は英語のまま
-        
-        return name, category, summary
-    except:
-        # 3. Last Resort Fallback
-        if 'dynamic_names' in st.session_state:
-            if ticker in st.session_state['dynamic_names']:
-                return st.session_state['dynamic_names'][ticker], '🌊 Market Mover', ''
-        
-        return ticker, '🌊 Market Mover', ''
+    # Summary Truncation
+    if summary and len(summary) > 200:
+         summary = summary[:200] + "..."
+         
+    return name, category, summary
 
 @st.cache_data(ttl=None) # TTLなし。引数のmtimeが変わるまでキャッシュ維持
 def load_cached_data(mtime_param):
@@ -922,15 +888,15 @@ def load_cached_data(mtime_param):
                     last_update = f.read().strip()
                     
             return df, history, last_update
+            return df, history, last_update
         except Exception as e:
-            st.warning(f"Cache load failed: {e}. Falling back to live fetch.")
+            st.error(f"Cache load failed: {e}. Please run update_data.py.")
+            return None, None, "Error"
     
-    # 初回起動時などファイルがない場合は、market_logicを使って直接取得
-    candidates = market_logic.get_momentum_candidates()
-    df, hist = market_logic.calculate_momentum_metrics(candidates)
-    if df is not None:
-        return df, hist, "Live Fetch (No Cache Found)"
-    return None, None, "Failed"
+    # Cache missing logic
+    st.error("⚠️ データキャッシュが見つかりません (Data Cache Missing)")
+    st.info("初回起動時やデータ更新時は、ターミナルで `python update_data.py` を実行してデータを生成してください。\n\n(Please run `python update_data.py` to generate data.)")
+    return None, None, "No Data"
 
 # ... (Previous code) ...
 # Note: I am not including the entire file content here, just the function replacement. 
@@ -997,6 +963,9 @@ def main():
 
 # --- View: Correlation Radar ---
 def render_correlation_radar():
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    
     st.title("📊 Market Correlation Radar")
     st.markdown("""
     **目的**: 為替、株式、債券、暗号資産など、異なるアセット間の「現在の連動性」を可視化します。
@@ -1267,16 +1236,86 @@ def generate_dynamic_comment(ticker, row):
     ]
     return random.choice(templates)
 
+# --- Major Indices Configuration ---
+# MAJOR_INDICES is now imported from market_logic
+
+@st.cache_data(show_spinner=False, ttl=300)  # 5分キャッシュ
+@st.cache_data(show_spinner=False, ttl=300)  # 5分キャッシュ (Reloading file essentially)
+def get_major_indices_data(period: str):
+    """Fetch major indices returns for the specified period from CACHE"""
+    indices_path = "data/indices_cache.json"
+    
+    # Default structure on error
+    results = {}
+    for ticker, (jp_name, emoji) in MAJOR_INDICES.items():
+        results[ticker] = {"name": jp_name, "emoji": emoji, "change": 0.0, "error": False}
+
+    if not os.path.exists(indices_path):
+        # Fail silently with 0% changes if cache missing (Prevent startup hang)
+        return results
+        
+    try:
+        with open(indices_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        for ticker, (jp_name, emoji) in MAJOR_INDICES.items():
+            if ticker in data:
+                item = data[ticker]
+                # item['returns'] has keys like "1d", "5d", "YTD"
+                # period might be "1d", "5d"...
+                # Note: item['returns'] keys are strings
+                
+                ret_val = item.get('returns', {}).get(period, 0.0)
+                results[ticker] = {
+                    "name": jp_name, 
+                    "emoji": emoji, 
+                    "change": ret_val, 
+                    "error": item.get('error', False)
+                }
+    except:
+        pass
+        
+    return results
+
+def render_major_indices(period: str):
+    """Render major indices section"""
+    indices_data = get_major_indices_data(period)
+    
+    # 2行3列で表示
+    cols = st.columns(6)
+    
+    for i, (ticker, data) in enumerate(indices_data.items()):
+        with cols[i]:
+            change = data['change']
+            color = "green" if change >= 0 else "red"
+            arrow = "▲" if change >= 0 else "▼"
+            
+            st.markdown(f"""
+            <div style="text-align: center; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin: 2px;">
+                <div style="font-size: 1.2rem;">{data['emoji']}</div>
+                <div style="font-size: 0.75rem; color: #888;">{data['name']}</div>
+                <div style="font-size: 1.0rem; color: {color}; font-weight: bold;">{arrow} {change:+.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
 # --- View: Momentum Master ---
 def render_momentum_master():
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import time
+    
     # Check File Modification Time (Trigger Cache Invalidation)
     cache_path = "data/momentum_cache.csv"
     mtime = os.path.getmtime(cache_path) if os.path.exists(cache_path) else 0
 
     # Load Data First
+    import importlib
+    importlib.reload(market_logic) # Ensure new functions are loaded
+    
+    t0 = time.time()
     with st.spinner('Loading data...'):
         df_metrics, history_dict, last_updated = load_cached_data(mtime)
-
+    
     # Display Title & Update Time
     col_title, col_time = st.columns([0.7, 0.3])
     with col_title:
@@ -1320,7 +1359,20 @@ def render_momentum_master():
         st.error("Data cache is empty and live fetch failed.")
         return
 
-    # --- UI: Control Panel ---
+    # --- Sidebar: Metadata Update ---
+    with st.sidebar:
+        st.markdown("### ⚙️ Data Settings")
+        if st.button("🔄 メタデータ更新 (詳細情報取得)"):
+            with st.spinner("詳細情報(社名/セクター)を取得中... 時間がかかります"):
+                try:
+                    all_tickers = df_metrics['Ticker'].tolist()
+                    market_logic.get_ticker_metadata_jp(all_tickers)
+                    st.success("更新完了！リロードします。")
+                    time.sleep(1)
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"更新エラー: {e}")
     st.markdown("### 🎯 Focus Period Selector")
     
     period_map = {
@@ -1340,6 +1392,14 @@ def render_momentum_master():
         index=0, 
         format_func=lambda x: period_map[x]
     )
+    
+    # --- 📈 主要指数セクション ---
+    st.markdown("### 📈 主要指数")
+    
+    t0 = time.time()
+    render_major_indices(selected_period)
+    
+    st.markdown("---")
     
     # --- Market Regime Auto-Detection (AI Attitude) ---
     # Calc Regime
@@ -1372,6 +1432,7 @@ def render_momentum_master():
     period_hierarchy = ['1d', '5d', '1mo', '3mo', '6mo', '1y']
     
     # Dynamic Filter
+    t0 = time.time()
     if selected_period != '1d' and selected_period in period_hierarchy:
         # Get index
         target_idx = period_hierarchy.index(selected_period)
@@ -1417,10 +1478,12 @@ def render_momentum_master():
     top_10 = df_sorted.head(10).copy() # Copy to avoid SettingWithCopyWarning
     
     # Enrich with Name, Sector, AI Strategy, AND Earnings
+    t0 = time.time()
     names = []
     sectors = []
     strategies = []
     earnings_dates = []
+    
     
     for _, row in top_10.iterrows():
         t = row['Ticker']
@@ -1513,54 +1576,20 @@ def render_momentum_master():
                     
                 name = row.get(title_col, '')
                 sub = row.get(subtitle_col, '')
+                bull_score = row.get('BullScore', 0)
+                if pd.isna(bull_score):
+                    bull_score = 0
                 
                 color = "#00FF00" if ret_val > 0 else "#FF4444"
                 bg_color = "rgba(0, 255, 0, 0.1)" if ret_val > 0 else "rgba(255, 0, 0, 0.1)"
                 
-                # Compact CSS (Ultra Density for Small Screens)
-                card_html = f"""
-                <div style="
-                    border: 1px solid #444; 
-                    border-radius: 8px; 
-                    padding: 8px 10px; 
-                    margin-bottom: 4px; 
-                    background-color: #0e1117; 
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-                ">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <div>
-                            <div style="display: flex; align-items: baseline; gap: 6px;">
-                                <span style="font-size: 1.3em; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">{ticker}</span>
-                                <span style="
-                                    font-size: 1.0em; 
-                                    font-weight: bold; 
-                                    color: {color}; 
-                                    background-color: {bg_color}; 
-                                    padding: 0px 4px; 
-                                    border-radius: 4px;
-                                ">
-                                    {ret_val:+.2f}%
-                                </span>
-                            </div>
-                            <div style="font-size: 0.75em; color: #aaaaaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">{name}</div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 0.9em; color: #eeeeee; font-weight: 600;">${price:.2f}</div>
-                            <div style="font-size: 1.0em; margin-top: 0px;">{signal}</div>
-                        </div>
-                    </div>
-                    <div style="
-                        font-size: 0.75em; 
-                        color: #cccccc; 
-                        border-top: 1px solid #333; 
-                        padding-top: 4px; 
-                        margin-top: 4px; 
-                        line-height: 1.25;
-                    ">
-                        🤖 {comment}
-                    </div>
-                </div>
-                """
+                # BullScore badge (only show if > 0)
+                score_html = ""
+                if bull_score > 0:
+                    score_html = f'<span style="font-size:0.7em;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;padding:1px 5px;border-radius:8px;margin-left:4px;font-weight:bold;">🎯{bull_score:.0f}</span>'
+                
+                # Compact HTML Card
+                card_html = f'''<div style="border:1px solid #444;border-radius:8px;padding:8px 10px;margin-bottom:4px;background-color:#0e1117;box-shadow:0 1px 2px rgba(0,0,0,0.3);"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><div><div style="display:flex;align-items:baseline;gap:6px;"><span style="font-size:1.3em;font-weight:900;color:#ffffff;letter-spacing:0.5px;">{ticker}</span><span style="font-size:1.0em;font-weight:bold;color:{color};background-color:{bg_color};padding:0px 4px;border-radius:4px;">{ret_val:+.2f}%</span>{score_html}</div><div style="font-size:0.75em;color:#aaaaaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;">{name}</div></div><div style="text-align:right;"><div style="font-size:0.9em;color:#eeeeee;font-weight:600;">${price:.2f}</div><div style="font-size:1.0em;margin-top:0px;">{signal}</div></div></div><div style="font-size:0.75em;color:#cccccc;border-top:1px solid #333;padding-top:4px;margin-top:4px;line-height:1.25;">🤖 {comment}</div></div>'''
                 st.markdown(card_html, unsafe_allow_html=True)
 
         # Render Top N
@@ -1575,15 +1604,26 @@ def render_momentum_master():
     # --- 🚨 Pre-Calculate Daily Signals (Inserted for Tabs Access) ---
     buy_breakout = []
     buy_reversal = []
+    buy_reentry = []
     sells = []
     
     if history_dict:
         try:
-             daily_signals = market_logic.get_todays_signals(history_dict)
+             # daily_signals = market_logic.get_todays_signals(history_dict) # OLD: Slow
+             
+             # NEW: Load Pre-calculated Cache
+             sig_path = "data/daily_signals_cache.json"
+             if os.path.exists(sig_path):
+                 with open(sig_path, 'r', encoding='utf-8') as f:
+                     daily_signals = json.load(f)
+             else:
+                 # Fallback if update_data.py wasn't run yet
+                 daily_signals = market_logic.get_todays_signals(history_dict)
              
              # Extract Lists
              buy_breakout = daily_signals.get('Buy_Breakout', [])
              buy_reversal = daily_signals.get('Buy_Reversal', [])
+             buy_reentry = daily_signals.get('Buy_Reentry', [])
              sells = daily_signals.get('Sell', [])
              
              total_scanned = len(history_dict)
@@ -1591,37 +1631,70 @@ def render_momentum_master():
              # ALWAYS show section (User can verify scanning works)
              st.markdown(f"### 🔔 本日の売買シグナル速報 <span style='font-size:0.6em; color:gray;'>(Scanned {total_scanned} stocks)</span>", unsafe_allow_html=True)
              
-             cols_sig = st.columns(3)
-             
+             cols_sig = st.columns(4)
+
+             # Helper Function for rendering signal tables
+             def render_signal_section(container, signal_list, title, caption, alert_type="success"):
+                 with container:
+                     if not signal_list:
+                         st.info(f"{title}: None")
+                         return
+                     
+                     if alert_type == "success":
+                         st.success(f"**{title} ({len(signal_list)})**")
+                     else:
+                         st.error(f"**{title} ({len(signal_list)})**")
+                         
+                     st.caption(caption)
+                     
+                     # Create DF
+                     df = pd.DataFrame(signal_list)
+                     
+                     # 1. Fetch JP Metadata
+                     tickers = df['Ticker'].tolist()
+                     meta_map = market_logic.get_ticker_metadata_jp(tickers)
+                     
+                     # 2. Add Columns (Remove Name for perf)
+                     # df['Name'] = df['Ticker'].map(lambda t: meta_map.get(t, {}).get('name', t))
+                     df['Sector'] = df['Ticker'].map(lambda t: meta_map.get(t, {}).get('sector', ''))
+                     
+                     # 3. Translate Reason
+                     # Ensure the attribute exists (handling reload issues)
+                     reason_map = getattr(market_logic, 'REASON_JP_MAP', {})
+                     df['Reason_JP'] = df['Reason'].map(lambda r: reason_map.get(r, r))
+                     
+                     # Debug: Show raw table if dataframe fails
+                     # st.write(df[['Name', 'Sector', 'Reason_JP']].head(1))
+                     
+                     # 4. Display (No Price)
+                     # Columns: Ticker | Sector | Reason
+                     try:
+                         st.dataframe(
+                             df[['Ticker', 'Sector', 'Reason_JP']],
+                             hide_index=True,
+                             column_config={
+                                 "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                                 # "Name": st.column_config.TextColumn("Name", width="small"),
+                                 "Sector": st.column_config.TextColumn("Sector", width="medium"),
+                                 "Reason_JP": st.column_config.TextColumn("Reason", width="medium"),
+                             },
+                             use_container_width=True
+                         )
+                     except Exception as e:
+                         st.error(f"Table Error: {e}")
+                         st.table(df[['Ticker', 'Sector', 'Reason_JP']].head(5))
+
              # 1. Breakout
-             with cols_sig[0]:
-                 if buy_breakout:
-                     st.success(f"**🚀 Breakout ({len(buy_breakout)})**")
-                     st.caption("高値更新 & トレンド継続")
-                     df_b = pd.DataFrame(buy_breakout)
-                     st.dataframe(df_b[['Ticker', 'Price', 'Reason']].style.format({'Price': '{:.2f}'}), hide_index=True)
-                 else:
-                     st.info("🚀 Breakout: None")
+             render_signal_section(cols_sig[0], buy_breakout, "🚀 Breakout", "BB突破 / 50日高値更新", "success")
 
              # 2. Reversal
-             with cols_sig[1]:
-                 if buy_reversal:
-                     st.success(f"**🎣 Reversal ({len(buy_reversal)})**")
-                     st.caption("MACD水面下からの反転")
-                     df_r = pd.DataFrame(buy_reversal)
-                     st.dataframe(df_r[['Ticker', 'Reason', 'Price']].style.format({'Price': '{:.2f}'}), hide_index=True)
-                 else:
-                     st.info("🎣 Reversal: None")
+             render_signal_section(cols_sig[1], buy_reversal, "🎣 Reversal", "MACD GC / Early Turn / Big Bounce", "success")
 
-             # 3. Sells
-             with cols_sig[2]:
-                 if sells:
-                     st.error(f"**👋 Sell Signals ({len(sells)})**")
-                     st.caption("Stop Loss Triggered")
-                     df_s = pd.DataFrame(sells)
-                     st.dataframe(df_s[['Ticker', 'Price', 'Reason']].style.format({'Price': '{:.2f}'}), hide_index=True)
-                 else:
-                     st.markdown("👋 Sell: None")
+             # 3. Reentry
+             render_signal_section(cols_sig[2], buy_reentry, "🔄 Reentry", "上昇トレンド中の押し目", "success")
+
+             # 4. Sells
+             render_signal_section(cols_sig[3], sells, "👋 Sell", "Stop Loss / Profit Take", "error")
              
              st.markdown("---")
              
@@ -1633,6 +1706,7 @@ def render_momentum_master():
     # --- Part 1.5: Worst 10 Stocks Calculation ---
     # Take Bottom 10 (Worst Performers) from the ORIGINAL df_metrics (unfiltered)
     # We do NOT apply the "Consistency Filter" to losers, as we want to see the absolute worst drops.
+    t0 = time.time()
     bottom_10 = df_metrics.sort_values(selected_period, ascending=True).head(10).copy()
     
     # Enrichment for Bottom 10
@@ -1719,19 +1793,29 @@ def render_momentum_master():
     with tab_rev:
         st.markdown(f"### 🎣 Reversal Candidates (MACD Golden Cross from Lows)")
         if buy_reversal:
+            # Apply score filter: Score >= 100, or top 10 if fewer than 10 qualify
+            high_score = [s for s in buy_reversal if s.get('BullScore', 0) >= 100]
+            if len(high_score) >= 10:
+                filtered_reversal = high_score  # All with score >= 100
+            else:
+                filtered_reversal = buy_reversal[:10]  # Top 10 by score (already sorted)
+            
             # Convert to DF for display
-            # We need to enrich it slightly to match the card view structure if possible, 
-            # or just use a simple DF for now.
-            # Let's try to reuse render_mobile_card_view by creating a mock DF with necessary columns.
-            rev_tickers = [item['Ticker'] for item in buy_reversal]
+            rev_tickers = [item['Ticker'] for item in filtered_reversal]
             
             # Filter original df_metrics to get full data for these tickers
             if df_metrics is not None:
                 df_rev_full = df_metrics[df_metrics['Ticker'].isin(rev_tickers)].copy()
                 
-                # Add "Reason" from buy_reversal to the DF
-                ticker_to_reason = {item['Ticker']: item['Reason'] for item in buy_reversal}
+                # Add "Reason" and "BullScore" from filtered list to the DF
+                ticker_to_reason = {item['Ticker']: item['Reason'] for item in filtered_reversal}
+                ticker_to_score = {item['Ticker']: item.get('BullScore', 0) for item in filtered_reversal}
+                ticker_order = {t: i for i, t in enumerate(rev_tickers)}  # Preserve sorted order
+                
                 df_rev_full['Signal_Reason'] = df_rev_full['Ticker'].map(ticker_to_reason)
+                df_rev_full['BullScore'] = df_rev_full['Ticker'].map(ticker_to_score)
+                df_rev_full['_order'] = df_rev_full['Ticker'].map(ticker_order)
+                df_rev_full = df_rev_full.sort_values('_order')  # Keep score-sorted order
                 
                 # Override AI Strategy with Reason for clarity
                 df_rev_full['AI Strategy'] = df_rev_full['Signal_Reason']
@@ -1739,12 +1823,13 @@ def render_momentum_master():
                 if use_mobile_view:
                      render_mobile_card_view(df_rev_full, selected_period)
                 else:
-                    # Desktop
+                    # Desktop - Include BullScore
                     st.dataframe(
-                        df_rev_full[['Ticker', 'Name', 'Sector', 'Price', 'Signal_Reason', selected_period]].style.format({
+                        df_rev_full[['Ticker', 'Name', 'BullScore', 'Signal_Reason', 'Price', selected_period]].style.format({
                             'Price': '{:.2f}', 
+                            'BullScore': '{:.0f} 🎯',
                             selected_period: '{:+.2f}%'
-                        }),
+                        }).background_gradient(subset=['BullScore'], cmap='Greens'),
                         use_container_width=True,
                         hide_index=True
                     )
@@ -1840,40 +1925,8 @@ def render_momentum_master():
     
     st.markdown("---")
     
-    # --- UI: Chart ---
-    # --- UI: Chart ---
-    # Collapsible Chart
-    with st.expander(f"📈 Performance Comparison (Top 10: {selected_period})", expanded=False):
-        top_tickers = top_10['Ticker'].tolist()
-        
-        if top_tickers:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            
-            # Decide chart window based on period (approx trading days)
-            window_map = {
-                '1d': 2, '5d': 5, '1mo': 22, '3mo': 65, '6mo': 130, 'YTD': 252, '1y': 252
-            }
-            days = window_map.get(selected_period, 65)
-            
-            for t in top_tickers:
-                if t in history_dict:
-                    s = history_dict[t]
-                    
-                    # Slice data to relevant period + padding
-                    # If dataframe is shorter than days, take all
-                    slice_data = s.tail(days)
-                    if slice_data.empty: continue
-                    
-                    # Rebase to 0% at start of chart
-                    rebased = (slice_data / slice_data.iloc[0] - 1) * 100
-                    ax.plot(rebased.index, rebased, label=t)
-            
-            ax.set_ylabel("Return (%)")
-            ax.set_title(f"Relative Performance (Last ~{days} Trading Days)")
-            ax.grid(True, linestyle='--', alpha=0.5)
-            ax.legend()
-            st.pyplot(fig, use_container_width=True)
-
+    # --- Top tickers for News section ---
+    top_tickers = top_10['Ticker'].tolist()
     # --- UI: News Section for Top Stocks ---
     # (News Section Removed for Compactness / or moved down? User didn't ask to remove, but previous context had it. Keeping it is fine.)
     # Actually, let's keep the user flow: Lists -> Chart -> News -> Heatmap -> Portfolio.
@@ -1949,84 +2002,129 @@ def render_momentum_master():
 
     SECTOR_JP_MAP = {
         # --- 1. Semi & AI Compute ---
-        "🧠 Semi: AI Compute & Logic": "🧠 半導体: AIコンピュート & ロジック",
-        "🏗️ Semi: Equipment & Foundry": "🏗️ 半導体: 製造装置 & ファウンドリ",
-        "🖥️ AI Infra: Server & Memory": "🖥️ AIインフラ: サーバー & メモリ",
-        "🔌 Semi: Analog & Power": "🔌 半導体: アナログ & パワー",
+        "🧠 Semi: AI Compute & Logic": "🧠 半導体: AIコンピュート [Semi: Compute]",
+        "🏗️ Semi: Front-End & Foundry Back-End, Test & Materials": "🏗️ 半導体: 製造/検査/素材 [Semi: Front/Back]",
+        "🔌 Semi: Analog & Power (Ind)": "🔌 半導体: アナログ/パワー (産業) [Semi: Analog Ind]",
+        "⚡ Semi: Auto & RF Power": "⚡ 半導体: 車載/RFパワ [Semi: Auto/RF]",
         
-        # --- 2. AI Software & Security ---
-        "🧠 AI: Big Tech": "🧠 AI: ビッグテック",
-        "🛡️ AI: Cybersecurity": "🛡️ AI: サイバーセキュリティ",
-        "☁️ AI: SaaS & Data Apps": "☁️ AI: SaaS & データアプリ",
-        "🤖 Robotics & Automation": "🤖 ロボティクス & 自動化",
+        # --- 2. AI Infrastructure ---
+        "🖥️ AI Infra: Server & Compute": "🖥️ AIインフラ: サーバー [AI Infra: Server]",
+        "💾 AI Infra: Storage & Memory": "💾 AIインフラ: ストレージ/メモリ [AI Infra: Storage]",
+        "🌐 AI Infra: Networking & Optical": "🌐 AIインフラ: ネットワーク/光 [AI Infra: Network]",
+        "❄️ AI Infra: Power & Cooling": "❄️ AIインフラ: 電力/冷却 [AI Infra: Power]",
         
-        # --- 3. Crypto & FinTech ---
-        "🪙 Crypto: Miners & Assets": "🪙 クリプト: マイナー & 資産",
-        "💳 FinTech & Payments": "💳 フィンテック: 決済",
+        # --- 3. Software, SaaS & Cyber ---
+        "👑 FANG+": "👑 FANG+ (米・大型テック10社) [FANG+]",
+        "🏰 SaaS: Enterprise Giants": "🏰 SaaS: 巨大エンタープライズ [SaaS: Giants]",
+        "⚙️ SaaS: Data & Dev": "⚙️ SaaS: データ基盤/Dev [SaaS: Data]",
+        "📝 SaaS: Productivity": "📝 SaaS: 生産性/業務効率 [SaaS: Prod]",
+        "🚀 SaaS: AI & Niche Apps": "🚀 SaaS: AI/ニッチアプリ [SaaS: AI/Niche]",
+        "🛡️ Cyber: Leaders": "🛡️ サイバー: リーダー [Cyber: Leaders]",
+        "🕵️ Cyber: Challengers": "🕵️ サイバー: チャレンジャー [Cyber: Challengers]",
         
-        # --- 4. Defense & Space ---
-        "🛡️ Defense: Major Contractors": "🛡️ 防衛: 大手請負",
-        "🚀 Space & Future Mobility": "🚀 宇宙: 宇宙 & 次世代モビリティ",
-        "🚁 Defense: Drones & Tech": "🚁 防衛: ドローン & テック",
+        # --- 4. Crypto & Digital Assets ---
+        "🪙 Crypto: Exchange & Staking": "🪙 クリプト: 取引所/ステーキング [Crypto: Exch]",
+        "💻 Crypto: AI & HPC Pivot": "💻 クリプト: AI/HPC転換 [Crypto: AI/HPC]",
+        "⛏️ Crypto: Pure Miners": "⛏️ クリプト: 純粋マイナー [Crypto: Miners]",
         
-        # --- 5 & 6. Energy & Utilities ---
-        "☢️ Energy: Nuclear": "☢️ エネルギー: 原子力",
-        "💡 Utilities: Regulated": "💡 公益: 規制電力",
-        "☀️ Energy: Solar & Clean Tech": "☀️ エネルギー: 太陽光 & クリーンテック",
+        # --- 5. FinTech ---
+        "📱 FinTech: Consumer": "📱 フィンテック: 消費者向け [FinTech: Consumer]",
+        "💳 FinTech: Infra & B2B": "💳 フィンテック: インフラ/B2B [FinTech: Infra]",
+        "💸 FinTech: Lending": "💸 フィンテック: レンディング [FinTech: Lend]",
         
-        # --- 7. Oil & Gas ---
-        "🛢️ Energy: Integrated Majors": "🛢️ エネルギー: 統合石油メジャー",
-        "🏗️ Energy: E&P (Upstream)": "🏗️ エネルギー: E&P (上流)",
-        "🔧 Energy: Services & Equipment": "🔧 エネルギー: サービス & 設備",
-        "🛤️ Energy: Midstream": "🛤️ エネルギー: ミッドストリーム",
+        # --- 6. Aerospace & Defense ---
+        "🛡️ Defense: Primes": "🛡️ 防衛: プライム(完成品) [Defense: Primes]",
+        "✈️ Aerospace: Suppliers": "✈️ 防衛: サプライヤー/部品 [Aero: Suppliers]",
+        "💻 Defense: Gov Services": "💻 防衛: 政府ITサービス [Defense: Gov]",
+        "🚀 Space: Leaders": "🚀 宇宙: リーダー [Space: Leaders]",
+        "☄️ Space: Speculative": "☄️ 宇宙: 小型/投機的 [Space: Spec]",
+        "🚁 Defense: Drones": "🚁 防衛: ドローン [Defense: Drones]",
         
-        # --- 8-10. Bio & Health ---
-        "💊 BioPharma: Big Pharma & Obesity": "💊 製薬: 大手製薬 & 肥満薬",
-        "🧬 Biotech: Commercial Leaders": "🧬 バイオ: 商用リーダー",
-        "🧪 Biotech: Gene & Cell Therapy": "🧪 バイオ: 遺伝子 & 細胞治療",
-        "🔬 Biotech: Clinical & Growth": "🔬 バイオ: 臨床 & グロース",
-        "🦾 MedTech & Devices": "🦾 医療: 医療機器 & デバイス",
-        "🏥 Health Services & Insurers": "🏥 医療: ヘルスケアサービス & 保険",
-        "📱 MedTech: Digital Health & Services": "📱 医療: デジタルヘルス & サービス",
+        # --- 7. Energy: Nuclear & Utilities ---
+        "☢️ Nuclear: Utilities": "☢️ 原子力: 電力会社 [Nuclear: Util]",
+        "⚛️ Nuclear: Fuel & Tech": "⚛️ 原子力: 燃料/技術 [Nuclear: Tech]",
+        "💡 Utilities: Growth": "💡 公益: グロース/DC電力 [Util: Growth]",
+        "🏠 Utilities: Defensive": "🏠 公益: ディフェンシブ [Util: Defense]",
+        "☀️ Energy: Solar": "☀️ エネルギー: 太陽光 [Energy: Solar]",
+        "🔋 Energy: H2 & Battery": "🔋 エネルギー: 水素/電池 [Energy: H2/Batt]",
         
-        # --- 11-13. Consumer ---
-        "🍔 Consumer: Restaurants": "🍔 消費財: レストラン",
-        "🥤 Consumer: Food & Bev Staples": "🥤 消費財: 食品 & 飲料",
-        "🛒 Consumer: Retail & E-Com": "🛒 消費財: 小売 & Eコマース",
-        "✈️ Consumer: Travel & Leisure": "✈️ 消費財: 旅行 & レジャー",
-        "👗 Consumer: Apparel & Luxury": "👗 消費財: アパレル & ラグジュアリー",
+        # --- 8. Energy: Oil & Gas ---
+        "🛢️ Energy: Majors": "🛢️ エネルギー: 石油メジャー [Energy: Majors]",
+        "🏗️ Energy: E&P": "🏗️ エネルギー: E&P(採掘) [Energy: E&P]",
+        "🔧 Energy: Services": "🔧 エネルギー: サービス [Energy: Svcs]",
+        "🛤️ Energy: Midstream": "🛤️ エネルギー: ミッドストリーム [Energy: Mid]",
         
-        # --- 14. Auto ---
-        "🚗 Auto & EV": "🚗 自動車: 自動車 & EV",
+        # --- 9. Resources & Materials ---
+        "🥇 Resources: Gold Majors": "🥇 資源: 金(メジャー) [Res: Gold Maj]",
+        "🥈 Resources: Silver & Mid": "🥈 資源: 銀/中堅 [Res: Silver]",
+        "🧨 Resources: Junior Miners": "🧨 資源: ジュニアマイナー [Res: Junior]",
+        "👑 Resources: Royalty": "👑 資源: ロイヤルティ [Res: Royalty]",
+        "🥉 Resources: Copper": "🥉 資源: 銅 [Res: Copper]",
+        "🏗️ Resources: Steel & Aluminum": "🏗️ 資源: 鉄鋼/アルミ [Res: Steel/Al]",
+        "🔋 Resources: Battery Chain": "🔋 資源: 電池サプライチェーン [Res: Batt Chain]",
+        "🧲 Resources: Strategic": "🧲 資源: 戦略物資 [Res: Strategic]",
+        "⚗️ Resources: Chem & Ag": "⚗️ 資源: 化学/農業 [Res: Chem/Ag]",
+        "📦 Resources: Packaging": "📦 資源: 梱包/パッケージ [Res: Pkg]",
         
-        # --- 15. Real Estate ---
-        "📡 Real Estate: Digital Infra": "📡 不動産: デジタルインフラ",
-        "🏘️ Real Estate: Traditional": "🏘️ 不動産: 伝統的REIT",
-        "🏠 Homebuilders & Residential": "🏠 住宅: 住宅建設 & 不動産",
+        # --- 10. Healthcare ---
+        "💊 Pharma: Majors": "💊 製薬: メジャー [Pharma: Majors]",
+        "🌍 Pharma: Global": "🌍 製薬: グローバル [Pharma: Global]",
+        "🧬 Biotech: Leaders": "🧬 バイオ: リーダー [Bio: Leaders]",
+        "🧪 Biotech: Clinical": "🧪 バイオ: 臨床/ゲノム [Bio: Clinical]",
+        "🦾 MedTech: Devices": "🦾 医療機器: デバイス [MedTech: Dev]",
+        "🔬 MedTech: Services": "🔬 医療機器: サービス/診断 [MedTech: Svcs]",
+        "📱 MedTech: Digital": "📱 医療機器: デジタルヘルス [MedTech: Digital]",
         
-        # --- 16. Finance ---
-        "🏛️ Finance: Mega Banks": "🏛️ 金融: メガバンク",
-        "🏦 Finance: Regional Banks": "🏦 金融: 地方銀行",
-        "📈 Finance: Capital Markets & PE": "📈 金融: 資本市場 & PE",
-        "💳 Finance: Credit Cards": "💳 金融: クレジットカード", # Old Key Cleanup might be needed if logic changed in market_logic, but I checked key is 'Credit Cards & Consumer'
-        "💳 Finance: Credit Cards & Consumer": "💳 金融: クレジットカード & 消費者金融",
-        "☂️ Finance: Insurance": "☂️ 金融: 保険",
+        # --- 11. Consumer Staples ---
+        "🥤 Consumer: Beverages": "🥤 消費財: 飲料 [Cons: Bev]",
+        "🥪 Consumer: Food": "🥪 消費財: 食品 [Cons: Food]",
+        "🚬 Consumer: Tobacco": "🚬 消費財: タバコ [Cons: Tob]",
         
-        # --- 17. Industrials ---
-        "🏭 Industrials: Machinery": "🏭 資本財: 機械 & 製造",
-        "✈️ Transport & Logistics": "✈️ 輸送: 物流 & 輸送",
-        "🏗️ Engineering & Construction": "🏗️ 建設: エンジニアリング & 建設",
+        # --- 12. Retail & E-Commerce ---
+        "🛒 Retail: Major": "🛒 小売: メジャー [Retail: Major]",
+        "🛍️ Retail: Specialty": "🛍️ 小売: 専門店 [Retail: Spec]",
+        "📦 E-Commerce: US": "📦 EC: 米国 [EC: US]",
+        "🌏 E-Commerce: Global": "🌏 EC: グローバル [EC: Global]",
+        "🐉 Asian Tech": "🐉 アジア: テック [Asia: Tech]",
+        "🚗 Services: Gig Economy": "🚗 サービス: ギグエコノミー [Svcs: Gig]",
+        "🍔 Restaurants: All": "🍔 レストラン: 外食 [Rest: All]",
         
-        # --- 18. Resources ---
-        "🥇 Resources: Gold & Silver": "🥇 資源: 金 & 銀",
-        "🏗️ Resources: Base Metals (Cu, Fe, Al)": "🏗️ 資源: ベースメタル (銅鉄アルミ)",
-        "🔋 Resources: Battery & EV Materials": "🔋 資源: 電池材料 & EV素材",
-        "🧲 Resources: Rare Earths & Specialty": "🧲 資源: レアアース & 特殊金属",
-        "⚗️ Resources: Chemicals & Materials": "⚗️ 資源: 化学 & 素材",
-        "💍 Resources: PGM & Royalty": "💍 資源: 白金族 & ロイヤルティ",
+        # --- 13. Travel & Goods ---
+        "✈️ Travel: Platforms": "✈️ 旅行: プラットフォーム [Travel: Plat]",
+        "🎰 Travel: Leisure": "🎰 旅行: レジャー/カジノ [Travel: Leis]",
+        "🎮 Consumer: Media": "🎮 消費財: メディア/ゲーム [Cons: Media]",
+        "👟 Consumer: Sportswear": "👟 消費財: スポーツウェア [Cons: Sport]",
+        "💎 Consumer: Luxury": "💎 消費財: ラグジュアリー [Cons: Lux]",
         
-        # --- Tech ---
-        "⚛️ Tech: Quantum Computing": "⚛️ テック: 量子コンピュータ"
+        # --- 14. Auto & Mobility ---
+        "⚡ Auto: EV Pure": "⚡ 自動車: EV専業 [Auto: EV]",
+        "🚗 Auto: Legacy": "🚗 自動車: レガシー [Auto: Legacy]",
+        "🤖 Auto: Tech": "🤖 自動車: 自動運転/テック [Auto: Tech]",
+        "⚙️ Auto: Parts": "⚙️ 自動車: 部品 [Auto: Parts]",
+        "🏪 Auto: Dealers": "🏪 自動車: ディーラー [Auto: Deal]",
+        
+        # --- 15. Housing & Infra ---
+        "🏠 Housing: Builders": "🏠 住宅: ビルダー [House: Bldr]",
+        "🔨 Housing: Products": "🔨 住宅: 建材 [House: Prod]",
+        "📱 Housing: Tech": "📱 住宅: 不動産テック [House: Tech]",
+        "⚡ Infra: Specialty": "⚡ インフラ: 専門工事 [Infra: Spec]",
+        "🏗️ Infra: Civil": "🏗️ インフラ: 土木 [Infra: Civil]",
+        
+        # --- 16. Industrials & Transport ---
+        "🚜 Industrials: Heavy": "🚜 資本財: 重機 [Ind: Heavy]",
+        "🏢 Industrials: HVAC": "🏢 資本財: 空調 [Ind: HVAC]",
+        "🏭 Industrials: Major": "🏭 資本財: 複合企業 [Ind: Major]",
+        "🚂 Transport: Rail": "🚂 輸送: 鉄道 [Trans: Rail]",
+        "🚚 Transport: Logistics": "🚚 輸送: 物流 [Trans: Log]",
+        "✈️ Transport: Airlines": "✈️ 輸送: 航空 [Trans: Air]",
+        "🚢 Transport: Shipping": "🚢 輸送: 海運 [Trans: Ship]",
+        
+        # --- 17. Future Tech ---
+        "⚛️ Tech: Quantum": "⚛️ テック: 量子コンピュータ [Tech: Quantum]",
+        "🤖 Robotics: Industrial": "🤖 ロボティクス: 産業用 [Robot: Ind]",
+        "🦾 Robotics: Service": "🦾 ロボティクス: サービス [Robot: Svc]",
+        "👓 Tech: ARVR": "👓 テック: AR/VR ウェアラブル端末 [Tech: ARVR]"    
+
     }
     
     def render_sector_heatmap(df, period):
@@ -2495,6 +2593,8 @@ def render_momentum_master():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+
                 
                 # --- Signal Explanation (Updated) ---
                 with st.expander("ℹ️ 新・シグナル判定基準と指標解説"):
@@ -2717,6 +2817,6 @@ def render_momentum_master():
 
     st.markdown("---")
     st.caption("⚠️ **免責事項**: 本アプリケーションは情報提供のみを目的としており、投資勧誘や助言を意図するものではありません。表示されるデータやAIによる分析結果は過去の実績に基づいており、将来の運用成果を保証するものではありません。投資判断はご自身の責任において行ってください。")
-
+    
 if __name__ == "__main__":
     main()

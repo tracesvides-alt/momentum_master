@@ -8,528 +8,787 @@ import random
 import concurrent.futures
 import re
 from datetime import datetime
+import json
+import os
+from deep_translator import GoogleTranslator
 
 # --- Constants ---
 
 # "Momentum Universe" - High Beta, Liquid, & Thematic Leaders
-SECTOR_DEFINITIONS = {
-# ---------------------------------------------------------
-    # 1-A. AI Compute & Logic (Designers)
-    # AIの「頭脳」を作る設計企業。AIブームの本丸。
-    # ---------------------------------------------------------
-    "🧠 Semi: AI Compute & Logic": [
-        "NVDA", "AMD", "QCOM", "ARM", "INTC", "AVGO", "MRVL", "ALAB","CRDO"
-    ],
 
-    # ---------------------------------------------------------
-    # 1-B. Semi Equipment & Foundry (The Fab)
-    # 半導体を作るための「工場」と「製造装置」。シリコンサイクルに敏感。
-    # ---------------------------------------------------------
-    "🏗️ Semi: Equipment & Foundry": [
-        "TSM", "ASML", "AMAT", "LRCX", "KLAC", "GFS", "UMC", 
-        "ENTG", "AMKR", "ONTO"
-    ],
+STATIC_MENU_ITEMS = [
+    "--- 🌏 指数・為替・債券 (Indices/Forex/Bonds) ---",
+    'USDJPY=X', '^TNX', 'BTC-USD', 'GLD',
+    "--- 💻 米国株：AI・ハイテク (US Tech/AI) ---",
+    'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'AAPL', 'META', 'AMD', 'PLTR', 'AVGO',
+    "--- 📊 米国ETF：セクター (US Sector ETFs) ---",
+    'QQQ', 'SPY', 'SMH', 'VGT', 'XLV', 'XLP', 'XLE', 'XLF',
+    "--- 🚀 テーマ別ETF (Thematic ETFs) ---",
+    'URA', 'COPX', 'QTUM', 'ARKX', 'NLR'
+]
 
-    # ---------------------------------------------------------
-    # 1-C. AI Infra: Server, Memory & Network
-    # AIを支える「足回り」。メモリ、サーバー、光通信。
-    # ---------------------------------------------------------
-    "🖥️ AI Infra: Server & Memory": [
-        "SMCI", "DELL", "HPE", "VRT", "ANET", "MU", "WDC", "PSTG", "SNDK",
-        "STX", "NTAP", "CIEN", "LUMN", "GLW", "COHR","CLS","MOD","NVT", "PH"
-    ],
+# Japanese sector name mapping
+SECTOR_JP_MAP = {
+    # --- 1. Semi & AI Compute ---
+    "🧠 Semi: AI Compute & Logic": "🧠 半導体: AIコンピュート [Semi: Compute]",
+    "🏗️ Semi: Front-End & Foundry Back-End, Test & Materials": "🏗️ 半導体: 製造/検査/素材 [Semi: Front/Back]",
+    "🔌 Semi: Analog & Power (Ind)": "🔌 半導体: アナログ/パワー (産業) [Semi: Analog Ind]",
+    "⚡ Semi: Auto & RF Power": "⚡ 半導体: 車載/RFパワ [Semi: Auto/RF]",
     
-    # ---------------------------------------------------------
-    # 1-D. Analog & Power Semi
-    # 自動車・産業機器向け。EVや工場の景気に連動。
-    # ---------------------------------------------------------
-    "🔌 Semi: Analog & Power": [
-        "TXN", "ADI", "ON", "NXPI", "STM", "MCHP", "SWKS", "QRVO", "SLAB", "WOLF"
+    # --- 2. AI Infrastructure ---
+    "🖥️ AI Infra: Server & Compute": "🖥️ AIインフラ: サーバー [AI Infra: Server]",
+    "💾 AI Infra: Storage & Memory": "💾 AIインフラ: ストレージ/メモリ [AI Infra: Storage]",
+    "🌐 AI Infra: Networking & Optical": "🌐 AIインフラ: ネットワーク/光 [AI Infra: Network]",
+    "❄️ AI Infra: Power & Cooling": "❄️ AIインフラ: 電力/冷却 [AI Infra: Power]",
+    
+    # --- 3. Software, SaaS & Cyber ---
+    "👑 FANG+": "👑 FANG+ (米・大型テック10社) [FANG+]",
+    "🏰 SaaS: Enterprise Giants": "🏰 SaaS: 巨大エンタープライズ [SaaS: Giants]",
+    "⚙️ SaaS: Data & Dev": "⚙️ SaaS: データ基盤/Dev [SaaS: Data]",
+    "📝 SaaS: Productivity": "📝 SaaS: 生産性/業務効率 [SaaS: Prod]",
+    "🚀 SaaS: AI & Niche Apps": "🚀 SaaS: AI/ニッチアプリ [SaaS: AI/Niche]",
+    "🛡️ Cyber: Leaders": "🛡️ サイバー: リーダー [Cyber: Leaders]",
+    "🕵️ Cyber: Challengers": "🕵️ サイバー: チャレンジャー [Cyber: Challengers]",
+    
+    # --- 4. Crypto & Digital Assets ---
+    "🪙 Crypto: Exchange & Staking": "🪙 クリプト: 取引所/ステーキング [Crypto: Exch]",
+    "💻 Crypto: AI & HPC Pivot": "💻 クリプト: AI/HPC転換 [Crypto: AI/HPC]",
+    "⛏️ Crypto: Pure Miners": "⛏️ クリプト: 純粋マイナー [Crypto: Miners]",
+    
+    # --- 5. FinTech ---
+    "📱 FinTech: Consumer": "📱 フィンテック: 消費者向け [FinTech: Consumer]",
+    "💳 FinTech: Infra & B2B": "💳 フィンテック: インフラ/B2B [FinTech: Infra]",
+    "💸 FinTech: Lending": "💸 フィンテック: レンディング [FinTech: Lend]",
+    
+    # --- 6. Aerospace & Defense ---
+    "🛡️ Defense: Primes": "🛡️ 防衛: プライム(完成品) [Defense: Primes]",
+    "✈️ Aerospace: Suppliers": "✈️ 防衛: サプライヤー/部品 [Aero: Suppliers]",
+    "💻 Defense: Gov Services": "💻 防衛: 政府ITサービス [Defense: Gov]",
+    "🚀 Space: Leaders": "🚀 宇宙: リーダー [Space: Leaders]",
+    "☄️ Space: Speculative": "☄️ 宇宙: 小型/投機的 [Space: Spec]",
+    "🚁 Defense: Drones": "🚁 防衛: ドローン [Defense: Drones]",
+    
+    # --- 7. Energy: Nuclear & Utilities ---
+    "☢️ Nuclear: Utilities": "☢️ 原子力: 電力会社 [Nuclear: Util]",
+    "⚛️ Nuclear: Fuel & Tech": "⚛️ 原子力: 燃料/技術 [Nuclear: Tech]",
+    "💡 Utilities: Growth": "💡 公益: グロース/DC電力 [Util: Growth]",
+    "🏠 Utilities: Defensive": "🏠 公益: ディフェンシブ [Util: Defense]",
+    "☀️ Energy: Solar": "☀️ エネルギー: 太陽光 [Energy: Solar]",
+    "🔋 Energy: H2 & Battery": "🔋 エネルギー: 水素/電池 [Energy: H2/Batt]",
+    
+    # --- 8. Energy: Oil & Gas ---
+    "🛢️ Energy: Majors": "🛢️ エネルギー: 石油メジャー [Energy: Majors]",
+    "🏗️ Energy: E&P": "🏗️ エネルギー: E&P(採掘) [Energy: E&P]",
+    "🔧 Energy: Services": "🔧 エネルギー: サービス [Energy: Svcs]",
+    "🛤️ Energy: Midstream": "🛤️ エネルギー: ミッドストリーム [Energy: Mid]",
+    
+    # --- 9. Resources & Materials ---
+    "🥇 Resources: Gold Majors": "🥇 資源: 金(メジャー) [Res: Gold Maj]",
+    "🥈 Resources: Silver & Mid": "🥈 資源: 銀/中堅 [Res: Silver]",
+    "🧨 Resources: Junior Miners": "🧨 資源: ジュニアマイナー [Res: Junior]",
+    "👑 Resources: Royalty": "👑 資源: ロイヤルティ [Res: Royalty]",
+    "🥉 Resources: Copper": "🥉 資源: 銅 [Res: Copper]",
+    "🏗️ Resources: Steel & Aluminum": "🏗️ 資源: 鉄鋼/アルミ [Res: Steel/Al]",
+    "🔋 Resources: Battery Chain": "🔋 資源: 電池サプライチェーン [Res: Batt Chain]",
+    "🧲 Resources: Strategic": "🧲 資源: 戦略物資 [Res: Strategic]",
+    "⚗️ Resources: Chem & Ag": "⚗️ 資源: 化学/農業 [Res: Chem/Ag]",
+    "📦 Resources: Packaging": "📦 資源: 梱包/パッケージ [Res: Pkg]",
+    
+    # --- 10. Healthcare ---
+    "💊 Pharma: Majors": "💊 製薬: メジャー [Pharma: Majors]",
+    "🌍 Pharma: Global": "🌍 製薬: グローバル [Pharma: Global]",
+    "🧬 Biotech: Leaders": "🧬 バイオ: リーダー [Bio: Leaders]",
+    "🧪 Biotech: Clinical": "🧪 バイオ: 臨床/ゲノム [Bio: Clinical]",
+    "🦾 MedTech: Devices": "🦾 医療機器: デバイス [MedTech: Dev]",
+    "🔬 MedTech: Services": "🔬 医療機器: サービス/診断 [MedTech: Svcs]",
+    "📱 MedTech: Digital": "📱 医療機器: デジタルヘルス [MedTech: Digital]",
+    
+    # --- 11. Consumer Staples ---
+    "🥤 Consumer: Beverages": "🥤 消費財: 飲料 [Cons: Bev]",
+    "🥪 Consumer: Food": "🥪 消費財: 食品 [Cons: Food]",
+    "🚬 Consumer: Tobacco": "🚬 消費財: タバコ [Cons: Tob]",
+    
+    # --- 12. Retail & E-Commerce ---
+    "🛒 Retail: Major": "🛒 小売: メジャー [Retail: Major]",
+    "🛍️ Retail: Specialty": "🛍️ 小売: 専門店 [Retail: Spec]",
+    "📦 E-Commerce: US": "📦 EC: 米国 [EC: US]",
+    "🌏 E-Commerce: Global": "🌏 EC: グローバル [EC: Global]",
+    "🐉 Asian Tech": "🐉 アジア: テック [Asia: Tech]",
+    "🚗 Services: Gig Economy": "🚗 サービス: ギグエコノミー [Svcs: Gig]",
+    "🍔 Restaurants: All": "🍔 レストラン: 外食 [Rest: All]",
+    
+    # --- 13. Travel & Goods ---
+    "✈️ Travel: Platforms": "✈️ 旅行: プラットフォーム [Travel: Plat]",
+    "🎰 Travel: Leisure": "🎰 旅行: レジャー/カジノ [Travel: Leis]",
+    "🎮 Consumer: Media": "🎮 消費財: メディア/ゲーム [Cons: Media]",
+    "👟 Consumer: Sportswear": "👟 消費財: スポーツウェア [Cons: Sport]",
+    "💎 Consumer: Luxury": "💎 消費財: ラグジュアリー [Cons: Lux]",
+    
+    # --- 14. Auto & Mobility ---
+    "⚡ Auto: EV Pure": "⚡ 自動車: EV専業 [Auto: EV]",
+    "🚗 Auto: Legacy": "🚗 自動車: レガシー [Auto: Legacy]",
+    "🤖 Auto: Tech": "🤖 自動車: 自動運転/テック [Auto: Tech]",
+    "⚙️ Auto: Parts": "⚙️ 自動車: 部品 [Auto: Parts]",
+    "🏪 Auto: Dealers": "🏪 自動車: ディーラー [Auto: Deal]",
+    
+    # --- 15. Housing & Infra ---
+    "🏠 Housing: Builders": "🏠 住宅: ビルダー [House: Bldr]",
+    "🔨 Housing: Products": "🔨 住宅: 建材 [House: Prod]",
+    "📱 Housing: Tech": "📱 住宅: 不動産テック [House: Tech]",
+    "⚡ Infra: Specialty": "⚡ インフラ: 専門工事 [Infra: Spec]",
+    "🏗️ Infra: Civil": "🏗️ インフラ: 土木 [Infra: Civil]",
+    
+    # --- 16. Industrials & Transport ---
+    "🚜 Industrials: Heavy": "🚜 資本財: 重機 [Ind: Heavy]",
+    "🏢 Industrials: HVAC": "🏢 資本財: 空調 [Ind: HVAC]",
+    "🏭 Industrials: Major": "🏭 資本財: 複合企業 [Ind: Major]",
+    "🚂 Transport: Rail": "🚂 輸送: 鉄道 [Trans: Rail]",
+    "🚚 Transport: Logistics": "🚚 輸送: 物流 [Trans: Log]",
+    "✈️ Transport: Airlines": "✈️ 輸送: 航空 [Trans: Air]",
+    "🚢 Transport: Shipping": "🚢 輸送: 海運 [Trans: Ship]",
+    
+    # --- 17. Future Tech ---
+    "⚛️ Tech: Quantum": "⚛️ テック: 量子コンピュータ [Tech: Quantum]",
+    "🤖 Robotics: Industrial": "🤖 ロボティクス: 産業用 [Robot: Ind]",
+    "🦾 Robotics: Service": "🦾 ロボティクス: サービス [Robot: Svc]",
+    "👓 Tech: ARVR": "👓 テック: AR/VR ウェアラブル端末 [Tech: ARVR]"    
+}
+
+# Signal Reason Japanese Mapping
+REASON_JP_MAP = {
+    "BB Break": "BB Break (ブレイク)",
+    "50日高値更新": "New High (高値更新)",
+    "Big Bounce": "Big Bounce (反発)",
+    "MACD GC": "MACD GC (ゴールデンクロス)",
+    "Early Turn (Hist↑)": "Early Turn (ヒストグラム改善)",
+    "Dip Buy (押し目)": "Dip Buy (押し目)",  # Already has JP but mapping just in case
+    "Profit Take (MACD DC)": "Profit Take (利確)",
+    "Stop Loss (Chandelier)": "Stop Loss (損切り)"
+}
+
+# --- Major Indices Configuration ---
+MAJOR_INDICES = {
+    "^DJI": ("ダウ30", "📊"),
+    "^GSPC": ("S&P500", "📈"), 
+    "^NDX": ("ナス100", "💻"),
+    "^RUT": ("ラッセル2000", "🏭"),
+    "BTC-USD": ("ビットコイン", "🪙"),
+    "GC=F": ("金", "🥇")
+}
+
+SECTOR_DEFINITIONS = {
+
+    # =========================================================
+    # 1. Semiconductor (Chips)
+    # =========================================================
+
+    # 1-A. AI Compute & Logic (Designers)
+    # AIの頭脳。
+    "🧠 Semi: AI Compute & Logic": [
+        "AMD", "QCOM", "ARM", "INTC", "MRVL", "ALAB", "CRDO","CDNS", "SNPS"
     ],
 
-# ---------------------------------------------------------
-    # 2-A. AI: Big Tech & Platform (Megacaps)
-    # プラットフォーマー。指数への影響大。
-    # ---------------------------------------------------------
-    "🧠 AI: Big Tech": [
-        "MSFT", "GOOGL", "GOOG", "META", "AMZN", "ADBE", "CRM", "SAP", "ORCL", "IBM", "NOW", "INTU"
+    # 1-B. Semi Equipment: Front-End
+    # 前工程製造装置・ファウンドリ。後工程・検査・素材
+    "🏗️ Semi: Front-End & Foundry Back-End, Test & Materials": [
+        "TSM", "ASML", "AMAT", "LRCX", "KLAC", "GFS", "UMC","ENTG", "AMKR", "ONTO", "CAMT"
     ],
 
-    # ---------------------------------------------------------
-    # 2-B. AI: Cybersecurity (Security is Essential for AI)
-    # 独自の動きをしやすいセクター。
-    # ---------------------------------------------------------
-    "🛡️ AI: Cybersecurity": [
-        "CRWD", "PANW", "FTNT", "ZS", "OKTA", "NET", "CYBR", "SENT", "GEN", "VRNS", "TENB", "QLYS"
+    # 1-D. Analog & Power Semi (Industrial)
+    # 産業機器向け。
+    "🔌 Semi: Analog & Power (Ind)": [
+        "TXN", "ADI", "STM", "MCHP", "SWKS"
     ],
 
-    # ---------------------------------------------------------
-    # 2-C. AI: Enterprise SaaS & Data Apps
-    # 高成長・高ボラティリティな中小型株群。
-    # ---------------------------------------------------------
-    "☁️ AI: SaaS & Data Apps": [
-        "PLTR", "SNOW", "DDOG", "MDB", "ESTC", "AI", "SOUN", "BBAI", 
-        "CDNS", "SNPS", "APP", "TTD", "TEAM", "HUBS", "GTLB", "CFLT", 
-        "DOCN", "WDAY", "DOCU", "ZM", "BOX", "DBX", "ASAN", "FRSH", 
-        "KVYO", "UPWK", "RDDT","DUOL"
+    # 1-E. Analog & Power Semi (Auto/RF)
+    # 車載・通信向け。
+    "⚡ Semi: Auto & RF Power": [
+        "ON", "NXPI", "QRVO", "SLAB", "WOLF"
     ],
 
-# ---------------------------------------------------------
-    # 3-A. Crypto Miners & Digital Assets
-    # ビットコイン価格と連動率が極めて高い。ハイリスク。
-    # ---------------------------------------------------------
-    "🪙 Crypto: Miners & Assets": [
-        "MSTR", "COIN", "MARA", "RIOT", "CLSK", "CORZ", "IREN", "APLD",
-        "WULF", "CIFR", "BTDR", "HIVE", "BTBT","BITF", "HUT", "GLXY", "BKKT", "BMNR","CRCL","BTCS","FIGR","CAN"
+    # =========================================================
+    # 2. AI Infrastructure
+    # =========================================================
+
+    # 2-A. AI Server & Compute
+    # サーバー筐体。
+    "🖥️ AI Infra: Server & Compute": [
+        "SMCI", "DELL", "HPE", "ORCL", "IBM", "CLS","CRWV","NBIS"
     ],
 
-    # ---------------------------------------------------------
-    # 3-B. FinTech & Payments
-    # 景気・金利・個人消費に連動。
-    # ---------------------------------------------------------
-    "💳 FinTech & Payments": [
-        "PYPL", "XYZ", "AFRM", "UPST", "BILL", "TOST", "FOUR", 
-        "FIS", "FISV", "GPN", "FLUT", "DKNG", "WU", "STNE", "XP", "NU", 
-        "LC", "DLO", "RELY", "INTR", "PAGS"
+    # 2-B. AI Storage & Memory
+    # ストレージ・メモリ。
+    "💾 AI Infra: Storage & Memory": [
+        "MU", "WDC", "STX", "PSTG", "NTAP", "SNDK"
     ],
 
-# ---------------------------------------------------------
-    # 4-A. Aerospace & Defense (Primes)
-    # 政府予算で動く巨大企業。地政学リスクヘッジ＆配当狙い。
-    # ---------------------------------------------------------
-    "🛡️ Defense: Major Contractors": [
-        "RTX", "LMT", "GD", "NOC", "LHX", "BA", "HWM", "GE", 
-        "TXT", "LDOS", "CACI", "SAIC", "HII"
+    # 2-C. AI Networking
+    # スイッチ・光通信。
+    "🌐 AI Infra: Networking & Optical": [
+        "ANET", "COHR", "LITE", "POET", "CIEN", "LUMN", "GLW","APH"
     ],
 
-    # ---------------------------------------------------------
-    # 4-B. Space Economy & Future Air Mobility
-    # ロケット、衛星、空飛ぶクルマ。ハイリスク・ハイリターン。
-    # ---------------------------------------------------------
-    "🚀 Space & Future Mobility": [
-        "RKLB", "ASTS", "LUNR", "SPCE", "PL", "SPIR", "MNTS", "SIDU","RDW","VOYG",  # 宇宙
-        "JOBY", "ACHR", "EH", "EVTL",                                  # 空飛ぶクルマ(eVTOL)
-        "IRDM", "SATS", "GSAT", "VSAT"                                 # 衛星通信
+    # 2-D. AI Power & Thermal
+    # 熱対策・電力管理。
+    "❄️ AI Infra: Power & Cooling": [
+        "VRT", "MOD", "NVT", "PH", "ETN"
     ],
 
-    # ---------------------------------------------------------
-    # 4-C. Drone & Unmanned Systems
-    # 現代戦の要。小型株が多くボラティリティが高い。
-    # ---------------------------------------------------------
-    "🚁 Defense: Drones & Tech": [
-        "AVAV", "KTOS", "AXON", "RCAT", "PDYN", "POWW", "UMAC","ONDS"
+    # =========================================================
+    # 3. Software, SaaS & Cyber
+    # =========================================================
+
+    # 3-A. FANG+ (The Magnificent 10)
+    # ビッグテック。
+    "👑 FANG+": [
+        "MSFT", "GOOGL", "META", "AMZN", "AAPL", "NFLX", 
+        "NVDA", "AVGO", "PLTR", "CRWD"
     ],
 
-    # ---------------------------------------------------------
-    # 5. Energy: Nuclear (AI Power Theme)
-    # ---------------------------------------------------------
-    "☢️ Energy: Nuclear": [
-        "OKLO", "SMR", "UEC", "UUUU", "CCJ", "NXE", "LEU", "DNN", "NNE", "GEV","VST", "CEG","BWXT"
+    # 3-B. SaaS: Enterprise Giants
+    # 巨大ソフトウェア。
+    "🏰 SaaS: Enterprise Giants": [
+        "ADBE", "CRM", "SAP", "NOW", "WDAY", "TEAM", "TTD", "APP"
     ],
 
-# ---------------------------------------------------------
-    # 6-A. Utilities: Regulated (Defensive)
-    # 地域独占の電力会社。金利感応度が高く、債券に近い動き。
-    # ---------------------------------------------------------
-    "💡 Utilities: Regulated": [
-        "NEE", "DUK", "SO", "AEP", "SRE", "D", "PEG", "ED", "XEL", 
-        "WEC", "ES", "EIX", "ETR", "FE", "PPL", "CMS", "CNP"
+    # 3-C. SaaS: Data Infrastructure
+    # データ基盤。
+    "⚙️ SaaS: Data & Dev": [
+        "SNOW", "DDOG", "MDB", "ESTC", "CFLT", "GTLB", "IOT"
     ],
 
-
-    # ---------------------------------------------------------
-    # 6-C. Clean Tech: Solar, Hydrogen & Battery
-    # 政策と金利に大きく左右されるグロース株。
-    # ---------------------------------------------------------
-    "☀️ Energy: Solar & Clean Tech": [
-        "FSLR", "ENPH", "SEDG", "RUN", "NXT", "SHLS", "ARRY",  # 太陽光
-        "PLUG", "BE", "FCEL", "BLDP",                          # 水素
-        "FLNC", "STEM", "EOSE", "ENVX", "QS"                   # 電池・貯蔵
+    # 3-D. SaaS: Productivity & Apps
+    # 業務効率化。
+    "📝 SaaS: Productivity": [
+        "DOCU", "ZM", "BOX", "DBX", "ASAN", "FRSH", "HUBS"
     ],
 
-# ---------------------------------------------------------
-    # 7-A. Oil Majors (Integrated)
-    # 採掘から販売まで垂直統合。財務盤石で高配当。
-    # ---------------------------------------------------------
-    "🛢️ Energy: Integrated Majors": [
+    # 3-E. SaaS: AI & Niche
+    # AI専業・ニッチ。
+    "🚀 SaaS: AI & Niche Apps": [
+        "AI", "SOUN", "BBAI", "KVYO", "UPWK", "DOCN", "RDDT", "DUOL"
+    ],
+
+    # 3-G. Cyber: Leaders
+    # セキュリティ大手。
+    "🛡️ Cyber: Leaders": [
+        "PANW", "FTNT", "ZS", "OKTA", "NET", "CYBR"
+    ],
+
+    # 3-H. Cyber: Challengers
+    # セキュリティ中堅。
+    "🕵️ Cyber: Challengers": [
+        "SENT", "GEN", "VRNS", "TENB", "QLYS"
+    ],
+
+    # =========================================================
+    # 4. Crypto & Digital Assets
+    # =========================================================
+    # ここは銘柄数が多いので3つに分割して全銘柄格納
+
+    # 4-A. Crypto: Exchange & Staking
+    # 取引所・ステーキング・資産保有。
+    "🪙 Crypto: Exchange & Staking": [
+        "COIN", "MSTR", "GLXY", "BKKT", "BTBT", "CRCL", "BMNR", "FIGR", "BTCS", "CAN"
+    ],
+
+    # 4-B. Crypto: AI & HPC Pivot
+    # 元マイナー→AIデータセンター転換組。
+    "💻 Crypto: AI & HPC Pivot": [
+        "CORZ", "HIVE", "IREN", "WULF", "APLD", "HUT", "BTDR", "CIFR", "BITF"
+    ],
+
+    # 4-C. Crypto: Pure Miners
+    # 純粋なマイニング専業（ASIC）。
+    "⛏️ Crypto: Pure Miners": [
+        "MARA", "RIOT", "CLSK"
+    ],
+
+    # =========================================================
+    # 5. FinTech
+    # =========================================================
+
+    # 5-A. FinTech: Consumer & Neobanks
+    # 個人向け・ネオバンク。
+    "📱 FinTech: Consumer": [
+        "PYPL", "XYZ", "SOFI", "HOOD", "NU", "STNE", "XP", "DLO"
+    ],
+
+    # 5-B. FinTech: Infra & B2B
+    # インフラ・法人。
+    "💳 FinTech: Infra & B2B": [
+        "FIS", "FISV", "GPN", "INTU", "BILL", "TOST", "FOUR", "PAGS"
+    ],
+
+    # 5-C. FinTech: Lending
+    # 融資・国際送金。
+    "💸 FinTech: Lending": [
+        "AFRM", "UPST", "LC", "RELY", "INTR", "WU"
+    ],
+
+    # =========================================================
+    # 6. Aerospace & Defense
+    # =========================================================
+
+    # 6-A. Defense Primes
+    # 完成品メーカー。
+    "🛡️ Defense: Primes": [
+        "RTX", "LMT", "GD", "NOC", "LHX", "HII", "BA"
+    ],
+
+    # 6-B. Aerospace Suppliers
+    # 部品・エンジン。
+    "✈️ Aerospace: Suppliers": [
+        "GE", "HWM", "TDG", "HEI", "TXT"
+    ],
+
+    # 6-C. Gov Services
+    # 政府IT・コンサル。
+    "💻 Defense: Gov Services": [
+        "LDOS", "BAH", "CACI", "SAIC", "PSN"
+    ],
+
+    # 6-D. Space Leaders
+    # 宇宙（主力）。
+    "🚀 Space: Leaders": [
+        "RKLB", "ASTS", "PL", "IRDM", "SATS", "LUNR"
+    ],
+
+    # 6-E. Space Speculative
+    # 宇宙（小型）。
+    "☄️ Space: Speculative": [
+        "RDW", "SPIR", "MNTS", "SIDU", "VOYG", "GSAT", "VSAT"
+    ],
+
+    # 6-F. Drones
+    # ドローン。
+    "🚁 Defense: Drones": [
+        "AVAV", "KTOS", "AXON", "RCAT", "PDYN", "POWW", "UMAC", "ONDS","ACHR","JOBY"
+    ],
+
+    # =========================================================
+    # 7. Energy: Nuclear & Utilities
+    # =========================================================
+
+    # 7-A. Nuclear: Utilities
+    # 原発稼働電力。
+    "☢️ Nuclear: Utilities": [
+        "VST", "CEG", "TLN", "PEG", "ETR"
+    ],
+
+    # 7-B. Nuclear: Fuel & Tech
+    # ウラン・SMR。
+    "⚛️ Nuclear: Fuel & Tech": [
+        "CCJ", "UEC", "NXE", "LEU", "GEV", "BWXT", "OKLO", "SMR", "NNE", "UUUU"
+    ],
+
+    # 7-C. Utilities: Growth
+    # データセンター公益。
+    "💡 Utilities: Growth": [
+        "NEE", "SO", "AEP", "D", "AES", "SRE"
+    ],
+
+    # 7-D. Utilities: Defensive
+    # 安定公益。
+    "🏠 Utilities: Defensive": [
+        "ED", "XEL", "WEC", "ES", "EIX", "FE", "PPL", "CMS", "CNP"
+    ],
+
+    # 7-E. Clean Tech: Solar
+    # 太陽光。
+    "☀️ Energy: Solar": [
+        "FSLR", "ENPH", "NXT", "ARRY", "SEDG", "RUN", "SHLS"
+    ],
+
+    # 7-F. Clean Tech: H2 & Battery
+    # 水素・電池。
+    "🔋 Energy: H2 & Battery": [
+        "FLNC", "BE", "PLUG", "LIN", "STEM", "EOSE", "FCEL", "BLDP", "ENVX", "QS"
+    ],
+
+    # =========================================================
+    # 8. Energy: Oil & Gas
+    # =========================================================
+
+    # 8-A. Oil Majors
+    # メジャー。
+    "🛢️ Energy: Majors": [
         "XOM", "CVX", "SHEL", "TTE", "BP", "EQNR", "PBR", "EC", "ENB"
     ],
 
-    # ---------------------------------------------------------
-    # 7-B. E&P (Exploration & Production)
-    # 掘削専業。原油価格の変動にダイレクトに反応する。
-    # ---------------------------------------------------------
-    "🏗️ Energy: E&P (Upstream)": [
-        "EOG", "COP", "OXY", "DVN",  "FANG",  "CTRA", 
-        "APA", "AR", "EQT", "RRC"
+    # 8-B. E&P
+    # 掘削。
+    "🏗️ Energy: E&P": [
+        "EOG", "COP", "OXY", "DVN", "FANG", "CTRA", "APA", "AR", "EQT", "RRC"
     ],
 
-    # ---------------------------------------------------------
-    # 7-C. Oil Services & Equipment
-    # 油田開発のための技術・機材提供。設備投資サイクルに連動。
-    # ---------------------------------------------------------
-    "🔧 Energy: Services & Equipment": [
+    # 8-C. Services
+    # サービス。
+    "🔧 Energy: Services": [
         "SLB", "HAL", "BKR", "FTI", "NOV", "WHD", "LBRT", "RIG", "VAL"
     ],
 
-    # ---------------------------------------------------------
-    # 7-D. Midstream (Pipelines)
-    # パイプライン輸送。原油価格より輸送量に依存。高配当MLP。
-    # ---------------------------------------------------------
+    # 8-D. Midstream
+    # パイプライン。
     "🛤️ Energy: Midstream": [
         "ET", "EPD", "KMI", "WMB", "TRP", "OKE", "PAA", "MPLX"
     ],
 
-    # ---------------------------------------------------------
-    # 8. BioPharma (Major & Obesity)
-    # ---------------------------------------------------------
-    "💊 BioPharma: Big Pharma & Obesity": [
-        "LLY", "NVO", "VKTX", "PFE", "MRK", "AMGN", "BMY", "ABBV", "JNJ", 
-        "GILD", "AZN", "SNY", "TEVA"
-    ],
-
-# ---------------------------------------------------------
-    # 9-A. Commercial Biotech (Profitable)
-    # すでに大型薬を持ち、黒字で安定しているバイオ。
-    # ---------------------------------------------------------
-    "🧬 Biotech: Commercial Leaders": [
-        "VRTX", "REGN", "BIIB", "AMGN", "GILD", "INCY", "UTHR", "BMRN", "ALNY"
-    ],
-
-    # ---------------------------------------------------------
-    # 9-B. Gene Editing & Cell Therapy (Speculative)
-    # ゲノム編集など次世代技術。赤字だがホームラン狙い。
-    # ---------------------------------------------------------
-    "🧪 Biotech: Gene & Cell Therapy": [
-        "CRSP", "NTLA", "BEAM", "EDIT","SRPT", "LEGN", "FATE"
-    ],
-
-    # ---------------------------------------------------------
-    # 9-C. Clinical Stage & Small Cap
-    # 臨床試験の結果次第で株価が数倍or半値になる銘柄群。
-    # ---------------------------------------------------------
-    "🔬 Biotech: Clinical & Growth": [
-        "AXSM", "KOD", "VKTX", "MDGL", "CYTK", "ARGX", 
-        "RXRX",  "DNA"
-    ],
-
-# ---------------------------------------------------------
-    # 10-A. MedTech & Devices
-    # 手術ロボットや検査機器。金利と病院の設備投資意欲に連動。
-    # ---------------------------------------------------------
-    "🦾 MedTech & Devices": [
-        "ABT", "SYK", "MDT", "BSX", "EW", "DXCM", "GEHC", 
-        "ZTS", "ILMN", "TMO", "DHR", "A", "BRKR", "RMD", "PODD"
-    ],
-
-    # ---------------------------------------------------------
-    # 10-B. Health Services & Insurance (Managed Care)
-    # ディフェンシブだが、米国の医療制度改革（選挙）の影響を受ける。
-    # ---------------------------------------------------------
-    "🏥 Health Services & Insurers": [
-        "UNH", "ELV", "CVS", "CI", "HUM", "CNC", "HCA", "UHS", "MCK", "CAH", "COR"
-    ],
-
-    # ---------------------------------------------------------
-    # 10-C. Digital Health & Health Tech (High Growth)
-    # 遠隔医療、AI医療プラットフォーム、InsurTech。
-    # ---------------------------------------------------------
-    "📱 MedTech: Digital Health & Services": [
-        "HIMS",  # Hims & Hers (遠隔医療・GLP1・サブスク) ★ここがベスト
-        "TDOC",  # Teladoc (遠隔医療の老舗)
-        "DOCS",  # Doximity (医師版LinkedIn・AIツール)
-        "OSCR",  # Oscar Health (AI活用型の医療保険 InsurTech)
-        "ALHC",  # Alignment Healthcare (テック活用型メディケア)
-        "SDGR",  # Schrödinger (創薬AIソフトウェア) ※Bio枠から移動も可
-        "RXRX",  # Recursion (AI創薬) ※Bio枠から移動も可
-        "TXG"    # 10x Genomics (ゲノム解析機器・ソフト)
-    ],
-
-# =========================================================
-    # 11. Consumer Staples (必需品・食品) vs Discretionary (外食)
+    # =========================================================
+    # 9. Resources & Materials
     # =========================================================
 
-    # ---------------------------------------------------------
-    # 11-A. Restaurants (Consumer Discretionary)
-    # 景気に敏感。インフレ（人件費・食材費）の影響大。
-    # ---------------------------------------------------------
-    "🍔 Consumer: Restaurants": [
-        "MCD", "SBUX", "CMG", "CAVA", "YUM", "DRI", "DPZ", "WING", "TXRH", "QSR",
-        "WEN", "SHAK", "SG"
+    # 9-A. Gold Majors
+    # 金（大手）。
+    "🥇 Resources: Gold Majors": [
+        "NEM", "GOLD", "AEM", "KGC", "AU", "GFI", "PHYS"
     ],
 
-    # ---------------------------------------------------------
-    # 11-B. Food & Beverage Staples (Consumer Staples)
-    # 不況に強い「生活必需品」。配当狙いの資金が入る。
-    # ---------------------------------------------------------
-    "🥤 Consumer: Food & Bev Staples": [
-        "KO", "PEP", "MNST", "CELH", "KDP",      # 飲料
-        "MDLZ", "HSY", "KHC", "GIS", "CPB",      # 加工食品
-        "HRL", "CAG", "MKC", "SJM", "TSN",       # 食品・調味料
-        "PM", "MO", "BTI",                       # タバコ
-        "COST", "WMT", "TGT", "KR", "DG", "DLTR" # ※スーパー・小売もここに入れると分析しやすい
+    # 9-B. Silver & Mid-Tier
+    # 銀・中堅。
+    "🥈 Resources: Silver & Mid": [
+        "PAAS", "HL", "AG", "CDE", "EQX", "IAG", "PSLV"
     ],
 
-    # ---------------------------------------------------------
-    # 12. Consumer: Retail & E-Commerce
-    # ---------------------------------------------------------
-    "🛒 Consumer: Retail & E-Com": [
-        "AMZN", "WMT", "COST", "TGT", "LOW", "TJX", "ROST", "ETSY", "EBAY", 
-        "CHWY", "CART", "DASH", "UBER", "LYFT", "GRND", "MTCH", "W", "BBY", 
-        "ANF", "AEO", "KSS", "M", "VSCO", "BROS", "YMM", "PDD", "BABA", "JD", 
-        "VIPS", "CPNG", "VNET", "BILI", "TME"
+    # 9-C. Junior Miners
+    # 小型・探鉱。
+    "🧨 Resources: Junior Miners": [
+        "HYMC", "IDR", "NGD", "USAS", "EXK", "FSM", "VZLA", "SVM"
     ],
 
+    # 9-D. Royalty
+    # ロイヤルティ。
+    "👑 Resources: Royalty": [
+        "WPM", "FNV", "RGLD", "TFPM", "MTA", "SBSW", "PLG"
+    ],
+
+    # 9-E. Copper
+    # 銅。
+    "🥉 Resources: Copper": [
+        "FCX", "SCCO", "TECK", "HBM", "ERO", "IE", "TGB"
+    ],
+
+    # 9-F. Steel & Aluminum
+    # 鉄・アルミ。
+    "🏗️ Resources: Steel & Aluminum": [
+        "NUE", "CLF", "STLD", "AA", "CENX", "BHP", "RIO", "VALE"
+    ],
+
+    # 9-G. Battery Chain
+    # 電池素材。
+    "🔋 Resources: Battery Chain": [
+        "ALB", "SQM", "LAC", "SGML", "TMC", "WWR", "NMG", "CC","TROX"
+    ],
+
+    # 9-H. Strategic Metals
+    # 戦略物資。
+    "🧲 Resources: Strategic": [
+        "MP", "LYSDY", "UAMY", "PPTA", "IPX", "TMQ", "CRML", "EU", "USAR"
+    ],
+
+    # 9-I. Chemicals & Ag
+    # 化学・農業。
+    "⚗️ Resources: Chem & Ag": [
+        "APD", "SHW", "CTVA", "NTR", "MOS", "CF", "DOW", "DD"
+    ],
+
+    # 9-J. Packaging
+    # 包装。
+    "📦 Resources: Packaging": [
+        "SW", "IP", "PKG", "BALL", "AVY", "GPK", "AMCR"
+    ],
 
     # =========================================================
-    # 13. Consumer Discretionary (アパレル vs 旅行・娯楽)
+    # 10. Healthcare
     # =========================================================
 
-    # ---------------------------------------------------------
-    # 13-A. Travel, Leisure & Entertainment (Services)
-    # 「コト消費」。景気回復期に強い。
-    # ---------------------------------------------------------
-    "✈️ Consumer: Travel & Leisure": [
-        "BKNG", "ABNB", "EXPE", "TRIP",          # 予約サイト
-        "RCL", "CCL", "NCLH", "VIK",             # クルーズ
-        "MAR", "HLT", "H", "WH", "HST",          # ホテル
-        "LVS", "MGM", "WYNN", "CZR", "DKNG",     # カジノ・賭け
-        "DIS", "NFLX", "SPOT", "LYV", "WMG",     # エンタメ・音楽
-        "EA", "TTWO", "RBLX"                     # ゲーム（ここに入れるのが一般的）
+    # 10-A. Pharma Majors
+    # 大手製薬。
+    "💊 Pharma: Majors": [
+        "LLY", "NVO", "JNJ", "MRK", "ABBV", "PFE", "AMGN", "BMY"
     ],
 
-    # ---------------------------------------------------------
-    # 13-B. Apparel, Footwear & Luxury (Goods)
-    # 「モノ消費」。在庫サイクルや中国需要の影響を受ける。
-    # ---------------------------------------------------------
-    "👗 Consumer: Apparel & Luxury": [
-        "NKE", "LULU", "ONON", "DECK",  "CROX", "BIRK", # 靴・スポーツ
-        "RL", "PVH", "VFC", "LEVI",  "ANF", "AEO",      # アパレル
-        "TJX", "ROST", "BURL",                                # ディスカウント衣料
-        "CPRI", "TPR", "LVMUY", "HESAY"                       # 高級ブランド
+    # 10-B. Global Pharma
+    # 海外製薬。
+    "🌍 Pharma: Global": [
+        "GILD", "AZN", "SNY", "TEVA", "NVS"
     ],
 
-    # ---------------------------------------------------------
-    # 14. Auto & EV
-    # ---------------------------------------------------------
-    "🚗 Auto & EV": [
-        "TSLA", "RIVN", "LCID", "LI", "XPEV", "NIO",  "PSNY", "F", 
-        "GM", "STLA", "TM", "HMC", "CNH", "GNTX", "APTV", "GT", "LKQ", "CVNA", 
-        "KMX", "ALV", "BWA", "QS", "GTX", "HOG", "MBLY", "HSAI","OUST"
+    # 10-C. Biotech Leaders
+    # 黒字バイオ。
+    "🧬 Biotech: Leaders": [
+        "VRTX", "REGN", "BIIB", "INCY", "UTHR", "BMRN", "ALNY","DVA"
     ],
 
-# ---------------------------------------------------------
-    # 15-A. Digital REITs (Data Center & Towers)
-    # 実質的に「AIインフラ株」。
-    # ---------------------------------------------------------
-    "📡 Real Estate: Digital Infra": [
-        "AMT", "CCI", "SBAC", "EQIX", "DLR", "IRM"
+    # 10-D. Biotech Clinical
+    # 臨床・ゲノム。
+    "🧪 Biotech: Clinical": [
+        "CRSP", "NTLA", "BEAM", "EDIT", "SRPT", "AXSM", "KOD", "VKTX", "MDGL","PLSE"
     ],
 
-    # ---------------------------------------------------------
-    # 15-B. Traditional REITs (Residential, Retail, Industrial)
-    # 金利感応度が高い。配当狙いの動き。
-    # ---------------------------------------------------------
-    "🏘️ Real Estate: Traditional": [
-        "PLD", "O", "VICI", "WELL", "SPG", "PSA", "AVB", "EQR", 
-        "INVH", "MAA", "ESS", "CPT", "ARE", "BXP"
+    # 10-E. MedTech Devices
+    # 機器。
+    "🦾 MedTech: Devices": [
+        "ABT", "SYK", "MDT", "BSX", "EW", "DXCM", "GEHC", "RMD", "PODD"
     ],
 
-# ---------------------------------------------------------
-    # 16-A. Mega Banks (G-SIBs)
-    # 「大きすぎて潰せない」巨大銀行。金利と米国経済の体温計。
-    # ---------------------------------------------------------
-    "🏛️ Finance: Mega Banks": [
-        "JPM", "BAC", "WFC", "C", "HSBC", "RY", "TD", "HDB"
+    # 10-F. MedTech Services
+    # サービス。
+    "🔬 MedTech: Services": [
+        "ZTS", "ILMN", "TMO", "DHR", "A", "BRKR", "UNH", "CVS", "HCA"
     ],
 
-    # ---------------------------------------------------------
-    # 16-B. Regional Banks
-    # 金利リスク・商業不動産(CRE)リスクに敏感。KRE ETFの構成銘柄。
-    # ---------------------------------------------------------
-    "🏦 Finance: Regional Banks": [
-        "USB", "PNC", "TFC",  "FITB", "RF", "KEY", "CFG", "HBAN", 
-        "MTB", "WAL", "CMA", "ZION"
+    # 10-G. Digital Health
+    # AI医療。
+    "📱 MedTech: Digital": [
+        "HIMS", "TDOC", "DOCS", "OSCR", "ALHC", "SDGR", "RXRX", "TXG", "TEM"
     ],
 
-    # ---------------------------------------------------------
-    # 16-C. Capital Markets, Asset Mgmt & PE
-    # 株式市場の活況・M&A・IPOに連動。
-    # ---------------------------------------------------------
-    "📈 Finance: Capital Markets & PE": [
-        "GS", "MS", "BLK", "SCHW", "IBKR", "RJF", "LPLA",  # 証券・運用
-        "BX", "KKR", "APO", "ARES", "CG", "OWL", "TROW",   # PE・資産運用
-        "COIN", "HOOD", "ICE", "NDAQ", "CME",        # 取引所・ブローカー
-    ],
-
-    # ---------------------------------------------------------
-    # 16-D. Credit Cards & Consumer Finance
-    # 消費者金融・決済インフラ。景気と個人消費に連動。
-    # ---------------------------------------------------------
-    "💳 Finance: Credit Cards & Consumer": [
-        "V",    # Visa
-        "MA",   # Mastercard
-        "AXP",  # American Express
-        "SYF",  # Synchrony (Amazonカード等の発行元)
-        "COF",  # Capital One (カード融資主体) ★16-Bから移動
-        "CPAY", # Corpay (企業間決済・燃料カード 旧FLT)
-        "WEX",  # WEX Inc (法人決済・ヘルスケア決済)
-        "SLM"   # Sallie Mae (学生ローン・消費者金融)
-    ],
-
-    # ---------------------------------------------------------
-    # 16-E. Insurance (P&C / Life)
-    # 金利上昇はプラスだが、災害リスク等独自の動きをする。
-    # ---------------------------------------------------------
-    "☂️ Finance: Insurance": [
-        "BRK-B", "PGR", "CB", "TRV", "ALL", "AIG", "MET", "PRU", 
-        "AFL", "HIG", "ACGL", "WRB"
-    ],
-
-# ---------------------------------------------------------
-    # 17-A. Industrials: Machinery & Manufacturing
-    # 景気敏感、設備投資需要に連動。
-    # ---------------------------------------------------------
-    "🏭 Industrials: Machinery": [
-        "CAT", "ETN", "EMR", "ITW", "CMI", "PCAR", "MMM", 
-        "GE", "HON", "OTIS", "CARR", "JCI", "XYL", "DOV", "AME"
-    ],
-
-    # ---------------------------------------------------------
-    # 17-B. Transport & Logistics
-    # 原油価格・個人消費・物流需要に連動。
-    # ---------------------------------------------------------
-    "✈️ Transport & Logistics": [
-        "UPS", "FDX", "DAL", "UAL", "AAL", "LUV", "ALK", "CSX", "UNP", 
-        "CP", "CNI", "NSC", "ODFL", "KNX", "JBHT", "XPO", "ZIM", "FRO"
-    ],
-
-# =========================================================
-    # 18. Resources & Materials (物質別分類)
+    # =========================================================
+    # 11. Consumer Staples
     # =========================================================
 
-    # ---------------------------------------------------------
-    # 18-A. Precious Metals: Gold & Silver
-    # 【金・銀】
-    # ---------------------------------------------------------
-    "🥇 Resources: Gold & Silver": [
-        # Major (大手)
-        "NEM", "GOLD", "AEM", "KGC", "AU", "GFI", "IAG", "NG", "EQX", 
-        # Silver (銀)
-        "PAAS", "HL", "AG", "CDE", "EXK",  "SVM", "FSM", "SSRM", "VZLA", 
-        # Junior / Exploration (小型・探鉱)
-        "HYMC",  # Hycroft (金・銀)
-        "NGD",   # New Gold (金・銅)
-        "IDR",   # Idaho Strategic (金が主産物 ※レアアースも保有)
-        "USAS",  # Americas Gold and Silver
-        "PHYS", "PSLV", "GLD", "SLV", "GDX", "GDXJ" # ETF
+    # 11-A. Beverages
+    # 飲料。
+    "🥤 Consumer: Beverages": [
+        "KO", "PEP", "MNST", "CELH", "KDP", "STZ", "TAP"
     ],
 
-# ---------------------------------------------------------
-    # 18-B. Industrial Metals: Copper, Iron, Aluminum
-    # 【銅・鉄・アルミ】への追加
-    # ---------------------------------------------------------
-    "🏗️ Resources: Base Metals (Cu, Fe, Al)": [
-        "BHP", "RIO", "VALE", 
-        "FCX", "SCCO", "TECK", "HBM", "ERO", "TGB", 
-        "IE",  # Ivanhoe Electric (米国の銅探査・ハイテク探査) ★追加
-        "CLF", "STLD", "NUE", "SID", 
-        "AA", "CENX", "ACH"
+    # 11-B. Food
+    # 食品。
+    "🥪 Consumer: Food": [
+        "MDLZ", "HSY", "GIS", "MKC", "KHC", "TSN", "CAG"
     ],
 
-    # ---------------------------------------------------------
-    # 18-C. Battery Minerals: Lithium, Nickel, Graphite
-    # 【電池材料】リチウムに加え、黒鉛(Graphite)を追加
-    # ---------------------------------------------------------
-    "🔋 Resources: Battery & EV Materials": [
-        "ALB", "SQM",  "LAC", "SGML", 
-        "NMG",  # Nouveau Monde Graphite (北米の黒鉛) ★追加
-        "WWR",  # Westwater Resources (米国の黒鉛) ★追加
-        "CC"
+    # 11-C. Tobacco
+    # タバコ。
+    "🚬 Consumer: Tobacco": [
+        "PM", "MO", "BTI", "UVV"
     ],
 
+    # =========================================================
+    # 12. Retail & E-Commerce
+    # =========================================================
 
-    # ---------------------------------------------------------
-    # 18-D. Specialty Metals & Rare Earths
-    # 【レアアース・特殊金属】アンチモン、チタン、ウラン複合など
-    # ---------------------------------------------------------
-    "🧲 Resources: Rare Earths & Specialty": [
-        "MP", "UAMY", "TMQ", "EU", "USAR","CRML","TMC"
+    # 12-A. Major Retail
+    # 小売大手。
+    "🛒 Retail: Major": [
+        "WMT", "COST", "TGT", "HD", "LOW", "KR", "DG", "DLTR", "BJ"
     ],
 
-    # ---------------------------------------------------------
-    # 18-E. Chemicals, Ag & Packaging
-    # 【化学・農業・包装】
-    # ---------------------------------------------------------
-    "⚗️ Resources: Chemicals & Materials": [
-        "LIN", "APD", "SHW", "DD", "DOW", "LYB", "EMN", "CE", "OLN", 
-        "MOS", "NTR", "CF", "FMC", "ICL", 
-        "BALL", "IP", "GPK"
+    # 12-B. Specialty Retail
+    # 専門店。
+    "🛍️ Retail: Specialty": [
+        "TJX", "ROST", "ULTA", "BBY", "TSCO", "ANF", "AEO", "KSS", "M"
     ],
 
-        # ---------------------------------------------------------
-    # [新設] 18-F. PGM & Streaming (Platinum/Royalty)
-    # 【プラチナ・ロイヤルティ】インフレヘッジと水素・ハイブリッド車需要
-    # ---------------------------------------------------------
-    "💍 Resources: PGM & Royalty": [
-        "SBSW", # Sibanye Stillwater (プラチナ・パラジウム・金)
-        "PLG",  # Platinum Group Metals (PGM開発)
-        "WPM",  # Wheaton Precious Metals (ストリーミングの王様)
-        "FNV",  # Franco-Nevada (金・エネルギーロイヤルティ)
-        "RGLD", # Royal Gold (金・銅ロイヤルティ)
-        "TFPM", # Triple Flag (中堅ストリーミング)
+    # 12-C. US E-Commerce
+    # 米国EC。
+    "📦 E-Commerce: US": [
+        "AMZN", "SHOP", "EBAY", "CHWY", "ETSY", "W", "CART"
     ],
 
-    # ---------------------------------------------------------
-    # 20. Housing & Construction
-    # ---------------------------------------------------------
-    "🏠 Homebuilders & Residential": [
-        "DHI", "LEN", "PHM", "TOL", "NVR", "KBH", "TMHC", "MTH", "ARLO", 
-        "BLDR", "MAS", "MHK", "ABNB", "Z", "OPEN", "EXP", "HD", "SHW"
-    ],
-    
-    # ---------------------------------------------------------
-    # 21. Tech: Quantum Computing
-    # ---------------------------------------------------------
-    "⚛️ Tech: Quantum Computing": [
-        "IONQ", "QBTS", "RGTI", "QMCO","ARQQ","LAES","QUBT"
-    ],
-    
-    # ---------------------------------------------------------
-    # 22. Engineering & Construction
-    # ---------------------------------------------------------
-    "🏗️ Engineering & Construction": [
-        "AGX","PWR","EME","FLR","J","ACM","FIX","MTZ","KBR","GVA","STRL","PRIM","TTEK"
+    # 12-D. Global E-Commerce
+    # 海外EC。
+    "🌏 E-Commerce: Global": [
+        "BABA", "JD", "PDD", "MELI", "SE", "CPNG"
     ],
 
-    # ---------------------------------------------------------
-    # 23. Robotics & Automation
-    # AIの「身体」と「実行力」。人手不足解消・生産性向上の本命。
-    # ---------------------------------------------------------
-    "🤖 Robotics & Automation": [
-        # --- Software Automation (RPA & AI) ---
-        "PATH",  # UiPath (PC作業の自動化ロボット) ★SaaSから移動
-        "SYM",   # Symbotic (倉庫のAI完全自動化)
+    # 12-E. Asian Tech
+    # アジアテック。
+    "🐉 Asian Tech": [
+        "BILI", "TME", "VIPS", "VNET", "YMM", "GRAB", "WB"
+    ],
 
-        # --- Industrial Robotics (Hardware & Control) ---
-        "TER",   # Teradyne (協働ロボット世界首位) ★Semiから移動
-        "ROK",   # Rockwell Automation (工場自動化システム) ★Industrialsから移動
-        
-        # --- Service & Delivery Robots ---
-        "SERV",  # Serve Robotics (ラストワンマイル配送)
-        
-        # --- Vision & Sensing (The Eyes) ---
-        "CGNX",  # Cognex (マシンビジョン)
-        "ZBRA",  # Zebra Tech (産業用スキャナ・管理)
-        "MBLY",  # Mobileye (自律走行ビジョン)
-        
-        # --- Medical & Ag Robots ---
-        "ISRG",  # Intuitive Surgical (ダ・ヴィンチ) ★MedTechから移動
-        "PRCT",  # PROCEPT BioRobotics (手術ロボ)
-        "DE",     # John Deere (自動運転トラクター) ★Industrialsから移動
-        "CLPT"
+    # 12-F. Gig Economy
+    # シェアリング。
+    "🚗 Services: Gig Economy": [
+        "UBER", "DASH", "LYFT", "GRND", "MTCH", "ABNB"
+    ],
+
+    # 12-G. Restaurants
+    # 外食。
+    "🍔 Restaurants: All": [
+        "MCD", "SBUX", "CMG", "CAVA", "YUM", "DRI", "DPZ", "WING", "SHAK"
+    ],
+
+    # =========================================================
+    # 13. Travel & Goods
+    # =========================================================
+
+    # 13-A. Travel Platforms
+    # 旅行。
+    "✈️ Travel: Platforms": [
+        "BKNG", "MAR", "HLT", "EXPE", "H", "WH", "TRIP"
+    ],
+
+    # 13-B. Leisure & Casino
+    # レジャー。
+    "🎰 Travel: Leisure": [
+        "RCL", "CCL", "LVS", "MGM", "WYNN", "DKNG", "LYV", "NCLH", "CZR"
+    ],
+
+    # 13-C. Media & Gaming
+    # メディア。
+    "🎮 Consumer: Media": [
+        "DIS", "SPOT", "TKO", "EA", "TTWO", "RBLX", "SONY", "WMG", "NTDOY","U"
+    ],
+
+    # 13-D. Sportswear
+    # スポーツ。
+    "👟 Consumer: Sportswear": [
+        "NKE", "ONON", "DECK", "LULU", "CROX", "BIRK"
+    ],
+
+    # 13-E. Luxury
+    # 高級品。
+    "💎 Consumer: Luxury": [
+        "LVMUY", "RACE", "HESAY", "TPR", "RL", "PVH", "VFC", "LEVI", "CPRI"
+    ],
+
+    # =========================================================
+    # 14. Auto & Mobility
+    # =========================================================
+
+    # 14-A. EV Pure Plays
+    # EV。
+    "⚡ Auto: EV Pure": [
+        "TSLA", "BYDDY", "RIVN", "LCID", "LI", "XPEV", "NIO", "PSNY"
+    ],
+
+    # 14-B. Legacy OEMs
+    # 既存メーカー。
+    "🚗 Auto: Legacy": [
+        "TM", "F", "GM", "STLA", "HMC", "HOG"
+    ],
+
+    # 14-C. Auto Tech
+    # 自動運転。
+    "🤖 Auto: Tech": [
+        "QS", "AUR", "HSAI", "OUST", "LAZR"
+    ],
+
+    # 14-D. Parts
+    # 部品。
+    "⚙️ Auto: Parts": [
+        "APTV", "BWA", "GNTX", "ALV", "LEA", "GT", "GTX", "LKQ"
+    ],
+
+    # 14-E. Dealers
+    # ディーラー。
+    "🏪 Auto: Dealers": [
+        "CVNA", "KMX", "AN", "LAD", "PAG"
+    ],
+
+    # =========================================================
+    # 15. Housing & Infra
+    # =========================================================
+
+    # 15-A. Homebuilders
+    # ビルダー。
+    "🏠 Housing: Builders": [
+        "DHI", "LEN", "PHM", "TOL", "NVR", "KBH", "TMHC", "MTH"
+    ],
+
+    # 15-B. Building Products
+    # 建材。
+    "🔨 Housing: Products": [
+        "BLDR", "OC", "MAS", "TREX", "POOL", "EXP", "AOS"
+    ],
+
+    # 15-C. Real Estate Tech
+    # 不動産テック。
+    "📱 Housing: Tech": [
+        "Z", "CSGP", "OPEN", "EXPI", "COMP", "FNF", "ARLO"
+    ],
+
+    # 15-D. Specialty Contractors
+    # 専門工事。
+    "⚡ Infra: Specialty": [
+        "PWR", "EME", "FIX", "MTZ", "STRL", "IESC", "MYRG", "AGX", "PRIM"
+    ],
+
+    # 15-F. Heavy Civil
+    # 土木。
+    "🏗️ Infra: Civil": [
+        "FLR", "GVA", "VMC", "MLM", "CRH"
+    ],
+
+    # =========================================================
+    # 16. Industrials & Transport
+    # =========================================================
+
+    # 16-A. Heavy Machinery
+    # 重機。
+    "🚜 Industrials: Heavy": [
+        "CAT", "DE", "URI", "CMI", "PCAR", "CNH", "OSK", "AGCO"
+    ],
+
+    # 16-B. Building Tech
+    # 空調。
+    "🏢 Industrials: HVAC": [
+        "CARR", "TT", "OTIS", "JCI", "FIX", "LII", "XYL"
+    ],
+
+    # 16-C. Conglomerates
+    # 複合。
+    "🏭 Industrials: Major": [
+        "HON", "EMR", "ITW", "MMM", "DOV", "AME", "ROK"
+    ],
+
+    # 16-D. Railroads
+    # 鉄道。
+    "🚂 Transport: Rail": [
+        "UNP", "CSX", "NSC", "CNI", "CP"
+    ],
+
+    # 16-E. Logistics
+    # 物流。
+    "🚚 Transport: Logistics": [
+        "UPS", "FDX", "ODFL", "XPO", "JBHT", "KNX", "SAIA", "CHRW"
+    ],
+
+    # 16-F. Airlines
+    # 航空。
+    "✈️ Transport: Airlines": [
+        "DAL", "UAL", "LUV", "AAL", "ALK"
+    ],
+
+    # 16-G. Shipping
+    # 海運。
+    "🚢 Transport: Shipping": [
+        "ZIM", "FRO", "STNG", "SBLK", "TRMD"
+    ],
+
+    # =========================================================
+    # 17. Future Tech
+    # =========================================================
+
+    # 17-A. Quantum Computing
+    # 量子。
+    "⚛️ Tech: Quantum": [
+        "IONQ", "QBTS", "RGTI", "QMCO", "ARQQ", "LAES", "QUBT"
+    ],
+
+    # 17-B. Industrial Robots
+    # 産業用ロボット。
+    "🤖 Robotics: Industrial": [
+        "TER", "ROK", "DE", "CGNX", "ZBRA", "CLPT", "FANUY"
+    ],
+
+    # 17-C. Service & Software Robots
+    # サービス・ソフトロボット。
+    "🦾 Robotics: Service": [
+        "PATH", "SYM", "SERV", "ISRG", "PRCT", "MBLY"
+    ],
+
+    # 18. AR/VR & Wearables
+    # AR/VR ウェアラブル端末。
+    " 👓 Future Tech: AR/VR & Wearables": [
+        "KOPN", "VUZI", "MVIS", "HIMX", "SNAP", "UEIC","VRAR"
     ]
 }
+
 
 # Create Mapping
 TICKER_TO_SECTOR = {}
@@ -658,7 +917,7 @@ def calculate_momentum_metrics(tickers):
     # Download 1y data to calculate long-term MA and 1y return
     # Download 1y data to calculate long-term MA and 1y return
     # Optimized Chunking to avoid Rate Limits
-    chunk_size = 30 # Conservative batch size
+    chunk_size = 10 # Extremely conservative batch size
     dfs = []
     
     print(f"Fetching data for {len(tickers)} tickers in chunks of {chunk_size}...")
@@ -667,10 +926,11 @@ def calculate_momentum_metrics(tickers):
         chunk = tickers[i:i + chunk_size]
         try:
             # Variable sleep to mimic human behavior slightly and respect limits
-            time.sleep(1.5) 
+            time.sleep(5.0) 
             
             # Re-enabling threads for speed within small batches, but carefully
-            batch_data = yf.download(chunk, period="1y", group_by='ticker', auto_adjust=True, progress=False, threads=True)
+            # Disable threads to avoid 429 errors
+            batch_data = yf.download(chunk, period="1y", group_by='ticker', auto_adjust=True, progress=False, threads=False)
             
             if not batch_data.empty:
                 dfs.append(batch_data)
@@ -899,9 +1159,8 @@ def calculate_momentum_metrics(tickers):
             
             stats_list.append(metrics)
             
-            # Save history
-            norm_hist = (t_data['Close'] / t_data['Close'].iloc[0]) * 100
-            history_dict[t] = norm_hist
+            # Save full OHLCV history for signal detection (not just normalized close)
+            history_dict[t] = t_data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
         except Exception as e:
             # print(f"Error calc {t}: {e}")
@@ -1986,12 +2245,15 @@ def get_ai_stock_picks(df_metrics, etf_metrics=None, news_checker=None, top_n=3,
 
 def get_todays_signals(history_dict):
     """
-    Scan all cached history to find signals generated on the *latest* available date.
-    Performs on-the-fly signal calculation since cached data is raw.
+    Scan all cached history to find signals on the LATEST day only.
+    OPTIMIZED: No full history loop - only check latest day conditions.
+    
+    Performance: ~10x faster than full history scan.
     """
     signals = {
-        'Buy_Breakout': [], # Pattern A
-        'Buy_Reversal': [], # Pattern B
+        'Buy_Breakout': [],
+        'Buy_Reversal': [],
+        'Buy_Reentry': [],
         'Sell': []
     }
     
@@ -2003,137 +2265,215 @@ def get_todays_signals(history_dict):
             continue
             
         try:
-            # COPY df to avoid modifying cache
             df = df_raw.copy()
             
-            # --- 1. Fast Indicator Calculation ---
-            # SMA
+            # === Fast Indicator Calculation (Vectorized) ===
+            df['SMA20'] = df['Close'].rolling(20).mean()
             df['SMA50'] = df['Close'].rolling(50).mean()
             
-            # RSI (14)
+            std20 = df['Close'].rolling(20).std()
+            df['BB_Upper'] = df['SMA20'] + (std20 * 2)
+            
             delta = df['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
             rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
-            # ADX (14)
-            high = df['High']
-            low = df['Low']
-            close = df['Close']
-            
-            tr1 = high - low
-            tr2 = (high - close.shift(1)).abs()
-            tr3 = (low - close.shift(1)).abs()
-            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            atr = tr.ewm(alpha=1/14, adjust=False).mean()
-            
-            up = high - high.shift(1)
-            down = low.shift(1) - low
-            pos_dm = np.where((up > down) & (up > 0), up, 0)
-            neg_dm = np.where((down > up) & (down > 0), down, 0)
-            
-            pos_dm_s = pd.Series(pos_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean()
-            neg_dm_s = pd.Series(neg_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean()
-            
-            dx = ( (pos_dm_s - neg_dm_s).abs() / (pos_dm_s + neg_dm_s) ) * 100
-            df['ADX'] = dx.ewm(alpha=1/14, adjust=False).mean()
-            
-            # MACD
-            ema12 = close.ewm(span=12, adjust=False).mean()
-            ema26 = close.ewm(span=26, adjust=False).mean()
-            macd = ema12 - ema26
-            signal = macd.ewm(span=9, adjust=False).mean()
-            df['MACD'] = macd
-            df['MACD_Signal'] = signal
-            
-            # Chandelier Exit
-            atr = tr.rolling(14).mean() # Simple rolling ATR for speed
-            highest_22 = high.rolling(22).max()
-            df['Chandelier_Exit'] = highest_22 - (atr * 5.0)
-
-            # RVOL
             df['AvgVol20'] = df['Volume'].rolling(20).mean()
             df['RVOL'] = df['Volume'] / df['AvgVol20']
-
-            # --- 2. Check Latest Signal ---
-            i = -1 # Today
-            row = df.iloc[i]
-            prev = df.iloc[i-1]
-            prev2 = df.iloc[i-2] # Need for "Yesterday Cross" check
+            df['High50'] = df['High'].rolling(50).max()
             
-            # Common Indicators
-            cond_trend_up = (row['Close'] > row['SMA50'])
-            cond_breakout = (row['Close'] > prev['High'])
-            cond_vol = (row['RVOL'] > 1.2) # Base volume requirement
-            cond_adx = (row['ADX'] > 20) # Slightly relaxed from 25
+            ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+            ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+            df['MACD'] = ema12 - ema26
+            df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+            df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
             
-            # MACD Status
-            macd_now = row['MACD']
-            sig_now = row['MACD_Signal']
-            macd_prev = prev['MACD']
-            sig_prev = prev['MACD_Signal']
-            macd_prev2 = prev2['MACD']
-            sig_prev2 = prev2['MACD_Signal']
+            high_low = df['High'] - df['Low']
+            high_close = (df['High'] - df['Close'].shift(1)).abs()
+            low_close = (df['Low'] - df['Close'].shift(1)).abs()
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            df['ATR'] = tr.rolling(14).mean()
+            df['Chandelier_Exit'] = df['High'].rolling(22).max() - (df['ATR'] * 5.0)
             
-            # GC Today: Now > Sig AND Prev <= Sig
-            is_gc_today = (macd_now > sig_now) and (macd_prev <= sig_prev)
+            up_move = df['High'] - df['High'].shift(1)
+            down_move = df['Low'].shift(1) - df['Low']
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+            tr_smooth = pd.Series(tr, index=df.index).ewm(alpha=1/14, adjust=False).mean()
+            plus_di = 100 * (pd.Series(plus_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+            minus_di = 100 * (pd.Series(minus_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+            dx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di))
+            df['ADX'] = dx.ewm(alpha=1/14, adjust=False).mean()
             
-            # GC Yesterday: Prev > Sig AND Prev2 <= Sig2
-            is_gc_yesterday = (macd_prev > sig_prev) and (macd_prev2 <= sig_prev2)
+            # === LATEST DAY ONLY - Fast Check ===
+            row = df.iloc[-1]
+            prev = df.iloc[-2]
+            prev2 = df.iloc[-3] if len(df) > 2 else prev
             
-            is_underwater = (macd_now < 0) and (sig_now < 0)
+            # --- Detect signal type on latest day ---
+            signal_type = None
+            reason = ''
             
-            # --- Pattern A: Momentum Breakout (Trend Following) ---
-            # Existing logic: High Trend, Breakout, Vol
-            if cond_trend_up and cond_breakout and (row['RVOL'] > 1.3) and (macd_now > sig_now) and cond_adx:
-                 # Ensure it's not a stale signal (require breakout OR fresh cross)
-                 if (prev['Close'] <= prev['High']) or is_gc_today:
-                    signals['Buy_Breakout'].append({
-                        'Ticker': ticker,
-                        'Price': row['Close'],
-                        'RVOL': row['RVOL'],
-                        'Reason': f"RVOL {row['RVOL']:.1f}x"
-                    })
-
-            # --- Pattern B: MACD Reversal (Bottom Fishing) ---
-            # User Preference: DIF & DEA < 0, Golden Cross (Today OR Yesterday)
-            elif (is_gc_today or is_gc_yesterday) and is_underwater and cond_vol:
-                 # Distinguish reason
-                 timing = "Today" if is_gc_today else "Yesterday"
-                 signals['Buy_Reversal'].append({
-                    'Ticker': ticker,
-                    'Price': row['Close'],
-                    'RVOL': row['RVOL'],
-                    'Reason': f"Zero Line Cross ({timing})"
-                 })
+            # BUY BREAKOUT
+            cond_trend = (row['Close'] > row['SMA50']) or (row['Close'] > row['SMA20'])
+            cond_bb_break = (row['Close'] > row['BB_Upper'])
+            cond_near_high = (row['Close'] >= row['High50'] * 0.98)
+            cond_breakout = cond_bb_break or cond_near_high
+            cond_vol = (row['RVOL'] > 1.1)
+            cond_macd = (row['MACD'] > row['MACD_Signal']) or (row['MACD'] > 0)
+            cond_safe_rsi = (row['RSI'] < 80)
             
-            # --- Pattern C: Technical Rebound (Bear Market Rally / First Pop) ---
-            # For stocks like CORT: Bear Trend (+14% Up), MACD Deep underwater (no cross yet).
-            # Relaxed Logic: (Bear Context: SMA50 Down OR Underwater) AND Price > 3% AND RVOL > 1.0
-            # User Feedback: "CORT should be in." -> Relaxed RVOL and context.
-            # Update: Removed 'Green Candle' check. CORT gapped up +14% but was red intraday. Still a reversal.
-            is_bear_context = (row['Close'] < row['SMA50']) or is_underwater
-            if is_bear_context and (row.get('1d', 0) > 3.0) and (row['RVOL'] > 1.0):
-                 signals['Buy_Reversal'].append({
-                    'Ticker': ticker,
-                    'Price': row['Close'],
-                    'RVOL': row['RVOL'],
-                    'Reason': f"Rebound (Vol {row['RVOL']:.1f}x)"
-                 })
+            if cond_trend and cond_breakout and cond_vol and cond_macd and cond_safe_rsi:
+                signal_type = 'Breakout'
+                reason = 'BB Break' if cond_bb_break else '50日高値圏'
             
-            # Sell: Stop Loss (Chandelier)
-            if row['Close'] < row['Chandelier_Exit']:
-                 if prev['Close'] >= prev['Chandelier_Exit']: # Crossed today
-                    signals['Sell'].append({
-                        'Ticker': ticker,
-                        'Price': row['Close'],
-                        'Reason': "Stop Loss"
-                    })
-
+            # BUY REVERSAL (Only for downtrend)
+            if signal_type is None:
+                cond_downtrend = (row['Close'] < row['SMA50'])
+                cond_rsi_low = (row['RSI'] < 55)
+                cross_today = (row['MACD'] > row['MACD_Signal']) and (prev['MACD'] <= prev['MACD_Signal'])
+                cross_yest = (prev['MACD'] > prev['MACD_Signal']) and (prev2['MACD'] <= prev2['MACD_Signal'])
+                cond_macd_cross = cross_today or cross_yest
+                cond_hist_up = (row['MACD_Hist'] > prev['MACD_Hist']) and (prev['MACD_Hist'] > prev2['MACD_Hist'])
+                cond_early = cond_rsi_low and cond_hist_up and (row['MACD_Hist'] < 0)
+                cond_big = (row['Close'] > row['Open'] * 1.03) and (row['RVOL'] > 1.2)
+                
+                if cond_downtrend and cond_rsi_low and cond_macd_cross:
+                    signal_type = 'Reversal'
+                    reason = 'MACD GC'
+                elif cond_downtrend and cond_early and (row['RVOL'] > 1.0):
+                    signal_type = 'Reversal'
+                    reason = 'Early Turn (Hist↑)'
+                elif cond_downtrend and cond_big:
+                    signal_type = 'Reversal'
+                    reason = 'Big Bounce'
+            
+            # BUY REENTRY
+            if signal_type is None:
+                cond_trend_up = (row['ADX'] > 15) and (row['Close'] > row['SMA50'])
+                cond_pullback = (40 < row['RSI'] < 60)
+                cross_today = (row['MACD'] > row['MACD_Signal']) and (prev['MACD'] <= prev['MACD_Signal'])
+                cond_hist_up = (row['MACD_Hist'] > prev['MACD_Hist']) and (prev['MACD_Hist'] > prev2['MACD_Hist'])
+                
+                if cond_trend_up and cond_pullback and (cross_today or cond_hist_up):
+                    signal_type = 'Reentry'
+                    reason = 'Dip Buy (押し目)'
+            
+            # SELL
+            if signal_type is None:
+                chandelier_break = (row['Close'] < row['Chandelier_Exit']) and (prev['Close'] >= prev['Chandelier_Exit'])
+                rsi_climax = (row['RSI'] > 90) and (prev['RSI'] <= 90)
+                rsi_was_high = df['RSI'].iloc[-10:].max() > 70 if len(df) >= 10 else False
+                macd_dead = (row['MACD'] < row['MACD_Signal']) and (prev['MACD'] >= prev['MACD_Signal'])
+                profit_take = macd_dead and (row['RSI'] < 60) and rsi_was_high
+                
+                if chandelier_break:
+                    signal_type = 'Sell_Stop'
+                    reason = 'Stop Loss (Chandelier)'
+                elif rsi_climax:
+                    signal_type = 'Sell_Profit'
+                    reason = f"RSI Climax ({row['RSI']:.0f})"
+                elif profit_take:
+                    signal_type = 'Sell_Profit'
+                    reason = 'Profit Take (MACD DC)'
+            
+            # === Skip if no signal on latest day ===
+            if signal_type is None:
+                continue
+            
+            # === Quick Cooldown Check (last 5 days only) ===
+            # Check if same signal type was triggered recently
+            recent = df.iloc[-6:-1]  # Last 5 days (excluding today)
+            
+            if signal_type in ['Breakout', 'Reversal', 'Reentry']:
+                # Check if any BUY signal was already triggered in last 5 days
+                has_recent_buy = False
+                for i in range(-5, -1):
+                    if len(df) + i < 0:
+                        continue
+                    r = df.iloc[i]
+                    p = df.iloc[i-1] if len(df) + i - 1 >= 0 else r
+                    
+                    # Quick buy check
+                    trend_ok = (r['Close'] > r['SMA50']) or (r['Close'] > r['SMA20'])
+                    bb_ok = (r['Close'] > r['BB_Upper']) or (r['Close'] >= r['High50'] * 0.98)
+                    vol_ok = (r['RVOL'] > 1.1)
+                    macd_ok = (r['MACD'] > r['MACD_Signal']) or (r['MACD'] > 0)
+                    rsi_ok = (r['RSI'] < 80)
+                    if trend_ok and bb_ok and vol_ok and macd_ok and rsi_ok:
+                        has_recent_buy = True
+                        break
+                    
+                    # Reversal check
+                    down_ok = (r['Close'] < r['SMA50'])
+                    cross_ok = (r['MACD'] > r['MACD_Signal']) and (p['MACD'] <= p['MACD_Signal'])
+                    if down_ok and (r['RSI'] < 55) and cross_ok:
+                        has_recent_buy = True
+                        break
+                
+                if has_recent_buy:
+                    continue  # Skip - cooldown active
+            
+            # === Calculate Bull Trend Probability Score (for Reversals) ===
+            daily_change = (row['Close'] - prev['Close']) / prev['Close'] * 100 if prev['Close'] > 0 else 0
+            sma50_distance = (row['SMA50'] - row['Close']) / row['SMA50'] * 100 if row['SMA50'] > 0 else 0  # % below SMA50
+            hist_improvement = row['MACD_Hist'] - prev['MACD_Hist'] if not pd.isna(prev['MACD_Hist']) else 0
+            
+            # RSI score: 30-50 is ideal (oversold but recovering)
+            rsi_score = 0
+            if 30 <= row['RSI'] <= 50:
+                rsi_score = 1.0  # Perfect zone
+            elif 20 <= row['RSI'] < 30:
+                rsi_score = 0.7  # Very oversold
+            elif 50 < row['RSI'] <= 55:
+                rsi_score = 0.5  # Slightly high but ok
+            else:
+                rsi_score = 0.3
+            
+            # Composite Score for Bull Trend Probability
+            # Higher = more likely to transition to bull trend
+            bull_score = (
+                daily_change * 3.0 +          # 30% weight - momentum
+                min(row['RVOL'], 5) * 5.0 +   # 25% weight - volume confirmation (cap at 5x)
+                max(0, 15 - sma50_distance) * 1.67 +  # 25% weight - closer to SMA50 = better
+                rsi_score * 10 +              # 10% weight - RSI position
+                hist_improvement * 100        # 10% weight - MACD hist improvement
+            )
+            
+            # === Add to signals ===
+            entry = {
+                'Ticker': ticker,
+                'Price': row['Close'],
+                'RVOL': row['RVOL'],
+                'RSI': row['RSI'],
+                'Reason': reason,
+                'DailyPct': daily_change,
+                'BullScore': bull_score,
+                'SMA50Dist': sma50_distance,
+                'ADX': row['ADX'],
+                'High50': row['High50'],
+                'MACD': row['MACD'],
+                'MACD_Signal': row['MACD_Signal'],
+                'Chandelier_Exit': row['Chandelier_Exit']
+            }
+            
+            if signal_type == 'Breakout':
+                signals['Buy_Breakout'].append(entry)
+            elif signal_type == 'Reversal':
+                signals['Buy_Reversal'].append(entry)
+            elif signal_type == 'Reentry':
+                signals['Buy_Reentry'].append(entry)
+            elif signal_type.startswith('Sell'):
+                signals['Sell'].append(entry)
 
         except Exception as e:
             continue
+    
+    # === Sort by BullScore (descending) ===
+    for key in ['Buy_Breakout', 'Buy_Reversal', 'Buy_Reentry']:
+        signals[key] = sorted(signals[key], key=lambda x: x.get('BullScore', 0), reverse=True)
             
     return signals
 
@@ -2646,3 +2986,135 @@ def find_better_alternatives(current_ticker, df_metrics, top_n=3):
     # Sort by Score
     candidates.sort(key=lambda x: x['Score'], reverse=True)
     return candidates[:top_n]
+
+# === Metadata & Localization Helpers ===
+
+def get_ticker_metadata_jp(tickers):
+    """
+    Fetch or load Japanese metadata (Name, Sector) for given tickers.
+    If not in cache, fetches from Yahoo Finance and translates using GoogleTranslator.
+    Updates cache automatically.
+    
+    Returns:
+        dict: {ticker: {'name': '銘柄和名', 'sector': 'セクター和名'}}
+    """
+    metadata_path = "data/metadata_cache.json"
+    cache = {}
+    
+    # Load cache
+    if os.path.exists(metadata_path):
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+        except Exception as e:
+            print(f"Error loading metadata cache: {e}")
+            cache = {}
+            
+    # Identify missing or non-Japanese entries
+    missing_tickers = []
+    
+    def is_japanese(text):
+        for char in text:
+            if '\u3040' <= char <= '\u309F' or '\u30A0' <= char <= '\u30FF' or '\u4E00' <= char <= '\u9FFF':
+                return True
+        return False
+
+    for t in tickers:
+        if t not in cache:
+            missing_tickers.append(t)
+        else:
+            # Check if name is Japanese -> (SKIP) Because we disabled translation, name is English.
+            # So is_japanese() will fail, causing re-fetch every time. This is BAD.
+            # Instead, check if industry is missing (If it's empty, try re-fetching)
+            if not cache[t].get('industry'):
+                 missing_tickers.append(t)
+                
+    # If all found, return formatted dict
+    if not missing_tickers:
+        res = {}
+        for t in tickers:
+            entry = cache[t]
+            sec_key = TICKER_TO_SECTOR.get(t, '')
+            
+            # Revert to English
+            if sec_key:
+                sec_disp = sec_key
+            else:
+                sec_disp = entry.get('industry', '')
+                if not sec_disp:
+                    sec_disp = '-'
+            
+            res[t] = {
+                'name': entry.get('name', t),
+                'sector': sec_disp
+            }
+        return res
+        
+    # Fetch missing
+    print(f"Fetching/Translating metadata for {len(missing_tickers)} tickers...")
+    translator = GoogleTranslator(source='auto', target='ja')
+    
+    for t in missing_tickers:
+        try:
+            ticker_obj = yf.Ticker(t)
+            info = ticker_obj.info
+            
+            # Get English name
+            name_en = info.get('shortName', info.get('longName', t))
+            sector_en = info.get('industry', info.get('sector', ''))
+            
+            # Translate Name
+            # SKIP TRANSLATION FOR PERFORMANCE (User Request)
+            name_jp = name_en
+            # try:
+            #     name_jp = translator.translate(name_en)
+            # except:
+            #     name_jp = name_en
+                
+            # Update Cache
+            if t not in cache:
+                cache[t] = {}
+            
+            cache[t]['name'] = name_jp
+            cache[t]['industry'] = sector_en # Keep EN industry in cache for reference
+            cache[t]['summary'] = info.get('longBusinessSummary', '') # Might be English if not translated here
+
+            # Sleep to avoid rate limits
+            time.sleep(0.1)
+            
+        except Exception as e:
+            print(f"Error fetching metadata for {t}: {e}")
+            # Fallback
+            if t not in cache:
+                cache[t] = {'name': t, 'industry': ''}
+
+    # Save cache
+    try:
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving metadata cache: {e}")
+        
+    # Return final dict
+    result = {}
+    for t in tickers:
+        entry = cache.get(t, {'name': t})
+        # Use our Sector Map for Sector, fall back to what we have
+        my_sector_key = TICKER_TO_SECTOR.get(t, '')
+        
+        # Revert to English (User Request: "English is fine if it shows up properly")
+        if my_sector_key:
+            sector_disp = my_sector_key  # Use defined key (e.g. "🧠 Semi: ...")
+        else:
+            sector_disp = entry.get('industry', '') # Use raw YF industry (English)
+            if not sector_disp:
+                sector_disp = "-"
+        
+        # sector_disp = SECTOR_JP_MAP.get(my_sector_key, entry.get('industry', ''))
+        
+        result[t] = {
+            'name': entry.get('name', t),
+            'sector': sector_disp
+        }
+        
+    return result
